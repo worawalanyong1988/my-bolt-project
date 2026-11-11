@@ -7,6 +7,7 @@ export type Route =
   | { name: 'story'; storyId: string }
   | { name: 'reader'; storyId: string; chapterId: string }
   | { name: 'studio' }
+  | { name: 'studio-statistics' }
   | { name: 'studio-story'; storyId: string };
 
 function parseHash(): Route {
@@ -17,6 +18,8 @@ function parseHash(): Route {
   if (parts[0] === 'bookshelf') return { name: 'bookshelf' };
   if (parts[0] === 'profile') return { name: 'profile' };
   if (parts[0] === 'studio' && parts.length === 1) return { name: 'studio' };
+  if (parts[0] === 'studio' && parts[1] === 'statistics' && parts.length === 2)
+    return { name: 'studio-statistics' };
   if (parts[0] === 'studio' && parts[1] === 'story' && parts[2])
     return { name: 'studio-story', storyId: parts[2] };
   if (parts[0] === 'story' && parts[1]) return { name: 'story', storyId: parts[1] };
@@ -35,6 +38,8 @@ function routeToHash(route: Route): string {
       return '#/profile';
     case 'studio':
       return '#/studio';
+    case 'studio-statistics':
+      return '#/studio/statistics';
     case 'studio-story':
       return `#/studio/story/${route.storyId}`;
     case 'story':

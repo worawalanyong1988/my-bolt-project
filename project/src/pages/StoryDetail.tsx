@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
-import { useApp } from '@/store';
+import { useState, useEffect, useRef } from 'react';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Cover } from '@/components/Cover';
 import { Badge } from '@/components/Badge';
 import { Modal } from '@/components/Modal';
-import { formatCount } from '@/components/NovelCard';
+import { formatCount } from '@/utils/formatCount';
 import { translateText } from '@/utils/translate';
 import {
   Bookmark,
@@ -24,23 +24,35 @@ import {
 
 interface StoryDetailProps {
   storyId: string;
+  onTagSelect: (tag: string) => void;
 }
 
-export function StoryDetail({ storyId }: StoryDetailProps) {
-  const { getStory, isBookmarked, toggleBookmark, state, setVIP } = useApp();
+export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
+  const { getStory, isBookmarked, toggleBookmark, toggleLike, state, setVIP, recordStoryView } = useApp();
   const { navigate, back } = useRouter();
   const [showPaywall, setShowPaywall] = useState(false);
+  const [pendingVipChapterId, setPendingVipChapterId] = useState<string | null>(null);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [translating, setTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
   const [translatedSynopsis, setTranslatedSynopsis] = useState<string | null>(null);
   const [translatedIntro, setTranslatedIntro] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
+  const viewedStoryIdRef = useRef<string | null>(null);
 
   const story = getStory(storyId);
+
+  useEffect(() => {
+    if (story?.status === 'published' && viewedStoryIdRef.current !== story.id) {
+      viewedStoryIdRef.current = story.id;
+      recordStoryView(story.id);
+    }
+  }, [story, recordStoryView]);
 
   const isEn = !!translatedSynopsis;
 
   const handleTranslate = async () => {
+    setTranslationError(null);
     if (isEn) {
       setTranslatedSynopsis(null);
       setTranslatedIntro(null);
@@ -54,13 +66,18 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
         translateText(story!.intro, 'th', 'en'),
         translateText(story!.title, 'th', 'en'),
       ]);
+      if (syn === story!.synopsis && title === story!.title) {
+        setTranslationError('แปลภาษาไม่สำเร็จในขณะนี้ ลองอีกครั้งภายหลัง');
+        return;
+      }
       setTranslatedSynopsis(syn);
       setTranslatedIntro(intro);
       setTranslatedTitle(title);
     } catch {
-      // keep original on error
+      setTranslationError('แปลภาษาไม่สำเร็จในขณะนี้ ลองอีกครั้งภายหลัง');
+    } finally {
+      setTranslating(false);
     }
-    setTranslating(false);
   };
 
   const displayTitle = translatedTitle || story?.title || '';
@@ -86,6 +103,7 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
 
   const handleChapterClick = (chapterId: string, isVIP: boolean) => {
     if (isVIP && !state.isVIP) {
+      setPendingVipChapterId(chapterId);
       setShowPaywall(true);
       return;
     }
@@ -93,8 +111,12 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
   };
 
   const handleSubscribe = () => {
-    setVIP(true);
+    setVIP(true, story.id);
     setShowPaywall(false);
+    if (pendingVipChapterId) {
+      navigate({ name: 'reader', storyId: story.id, chapterId: pendingVipChapterId });
+      setPendingVipChapterId(null);
+    }
   };
 
   const firstChapter = publishedChapters[0];
@@ -138,6 +160,11 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
       </div>
 
       <div className="px-4 -mt-24 relative">
+        {translationError && (
+          <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert">
+            {translationError}
+          </p>
+        )}
         {/* Title + cover + author */}
         <div className="flex gap-4">
           <div className="w-32 h-44 rounded-xl overflow-hidden shadow-2xl shrink-0 ring-4 ring-cream-50">
@@ -161,7 +188,20 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
         {/* Stats bar */}
         <div className="mt-4 grid grid-cols-4 gap-2 bg-cream-100 rounded-2xl p-3">
           <Stat icon={<Eye size={14} />} label="อ่าน" value={formatCount(story.readCount)} />
-          <Stat icon={<Heart size={14} />} label="ถูกใจ" value={formatCount(story.likeCount)} />
+          <button
+            type="button"
+            onClick={() => toggleLike(story.id)}
+            aria-pressed={state.likedStories.includes(story.id)}
+            className={`flex flex-col items-center text-center transition ${
+              state.likedStories.includes(story.id) ? 'text-rose-600' : 'text-charcoal'
+            }`}
+          >
+            <span className="mb-0.5 flex items-center gap-1 text-rose-500">
+              <Heart size={14} fill={state.likedStories.includes(story.id) ? 'currentColor' : 'none'} />
+            </span>
+            <span className="text-sm font-bold">{formatCount(story.likeCount)}</span>
+            <span className="text-[10px] text-charcoal-muted">ถูกใจ</span>
+          </button>
           <Stat
             icon={<BookmarkCheck size={14} />}
             label="เก็บ"
@@ -185,7 +225,7 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
           </button>
           {firstChapter && (
             <button
-              onClick={() => handleChapterClick(firstChapter.id, false)}
+              onClick={() => handleChapterClick(firstChapter.id, firstChapter.access === 'vip')}
               className="flex-[2] flex items-center justify-center gap-2 py-3 rounded-2xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition shadow-lg active:scale-95"
             >
               <Play size={18} fill="white" />
@@ -245,12 +285,14 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
           <div className="mt-5">
             <div className="flex flex-wrap gap-2">
               {story.tags.map((tag) => (
-                <span
+                <button
                   key={tag}
-                  className="text-xs text-terracotta-600 bg-terracotta-50 px-3 py-1.5 rounded-full font-medium hover:bg-terracotta-100 transition cursor-default"
+                  type="button"
+                  onClick={() => onTagSelect(tag)}
+                  className="text-xs text-terracotta-600 bg-terracotta-50 px-3 py-1.5 rounded-full font-medium hover:bg-terracotta-100 transition"
                 >
-                  #{tag}
-                </span>
+                  #{tag.replace(/^#/, '')}
+                </button>
               ))}
             </div>
           </div>
@@ -268,7 +310,7 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
           </div>
           <div className="space-y-2">
             {publishedChapters.map((chapter) => {
-              const isVIPChapter = chapter.access === 'vip' && !story.isFree;
+              const isVIPChapter = chapter.access === 'vip';
               const locked = isVIPChapter && !state.isVIP;
               return (
                 <button
@@ -286,7 +328,7 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
                       {chapter.title}
                     </h3>
                     <div className="flex items-center gap-2 mt-0.5">
-                      {story.isFree || chapter.access === 'free' ? (
+                      {chapter.access === 'free' ? (
                         <Badge variant="free">ฟรี</Badge>
                       ) : (
                         <Badge variant="vip">
@@ -296,6 +338,10 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
                       )}
                       <span className="text-[10px] text-charcoal-muted">
                         {wordCount(chapter.content)} คำ
+                      </span>
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-charcoal-muted">
+                        <Eye size={11} />
+                        {formatCount(chapter.readCount)}
                       </span>
                     </div>
                   </div>
@@ -321,9 +367,9 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
             <Crown size={32} className="text-amber-900" />
           </div>
-          <h2 className="text-xl font-bold text-charcoal">สมาชิกพรีเมียม VIP</h2>
+          <h2 className="text-xl font-bold text-charcoal">สมาชิก VIP รายเดือน</h2>
           <p className="text-sm text-charcoal-muted mt-2">
-            อ่านไม่อั้นทุกเรื่อง ทุกตอน ไม่มีโฆษณา
+            ปลดล็อกทุกตอน VIP ทุกเรื่องด้วยสมาชิกแบบรายเดือน ไม่มีการซื้อแยกเป็นรายตอน
           </p>
 
           <div className="mt-5 bg-cream-100 rounded-2xl p-4">
@@ -351,7 +397,7 @@ export function StoryDetail({ storyId }: StoryDetailProps) {
             onClick={handleSubscribe}
             className="mt-5 w-full bg-terracotta-500 hover:bg-terracotta-600 text-white py-3 rounded-2xl font-bold text-sm transition shadow-lg active:scale-95"
           >
-            สมัครเลย — 59 บาท/เดือน
+            สมัครสมาชิก VIP — 59 บาท/เดือน
           </button>
           <button
             onClick={() => setShowPaywall(false)}

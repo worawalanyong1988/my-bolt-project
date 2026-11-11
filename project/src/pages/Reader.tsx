@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
-import { Modal } from '@/components/Modal';
-import { STICKERS, ART_STICKERS, TIPS } from '@/mockData';
+import { STICKERS, ART_STICKERS, DONATION_STICKERS } from '@/mockData';
 import { translateText } from '@/utils/translate';
-import type { ReadingTheme, FontFamily, Comment } from '@/types';
+import { formatCount } from '@/utils/formatCount';
+import type { ReadingTheme, FontFamily, Comment, PaymentMethod } from '@/types';
+import { Modal } from '@/components/Modal';
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,12 +19,17 @@ import {
   Send,
   Heart,
   Crown,
-  Check,
   Lock,
   Languages,
   Loader2,
+  Eye,
   Smile,
   Palette,
+  X,
+  CreditCard,
+  QrCode,
+  Wallet,
+  List,
 } from 'lucide-react';
 
 interface ReaderProps {
@@ -37,6 +43,12 @@ const THEME_CONFIG: { value: ReadingTheme; label: string; icon: typeof Sun; bg: 
   { value: 'night', label: 'กลางคืน', icon: Moon, bg: 'bg-gray-800' },
 ];
 
+const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: typeof CreditCard }[] = [
+  { id: 'card', label: 'บัตรเครดิต/เดบิต', icon: CreditCard },
+  { id: 'promptpay', label: 'พร้อมเพย์ QR Code', icon: QrCode },
+  { id: 'wallet', label: 'หักจากวอลเล็ต', icon: Wallet },
+];
+
 export function Reader({ storyId, chapterId }: ReaderProps) {
   const {
     getStory,
@@ -45,27 +57,54 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     setReadingTheme,
     setFontFamily,
     setFontSize,
+    setVIP,
     updateProgress,
+    recordStoryView,
+    recordChapterView,
     getComments,
     addComment,
     deleteComment,
     getTips,
-    addTip,
+    addDonation,
   } = useApp();
-  const { navigate, back } = useRouter();
+  const { navigate } = useRouter();
   const [showSettings, setShowSettings] = useState(false);
+  const [showChapterList, setShowChapterList] = useState(false);
   const [stickerTab, setStickerTab] = useState<'emoji' | 'art'>('emoji');
   const [showStickers, setShowStickers] = useState(false);
-  const [showTipJar, setShowTipJar] = useState(false);
   const [tipSuccess, setTipSuccess] = useState<string | null>(null);
+  const [pendingDonation, setPendingDonation] = useState<(typeof DONATION_STICKERS)[number] | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
+  const [donationMessage, setDonationMessage] = useState('');
   const [commentText, setCommentText] = useState('');
+  const [selectedSticker, setSelectedSticker] = useState<NonNullable<Comment['sticker']> | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const viewedChapterKeyRef = useRef<string | null>(null);
+  const viewedStoryIdRef = useRef<string | null>(null);
 
   const story = getStory(storyId);
   const chapter = getChapter(storyId, chapterId);
+
+  useEffect(() => {
+    const viewKey = story && chapter ? `${story.id}:${chapter.id}` : null;
+    if (
+      story?.status === 'published' &&
+      chapter?.status === 'published' &&
+      (chapter.access === 'free' || state.isVIP) &&
+      viewKey !== viewedChapterKeyRef.current
+    ) {
+      viewedChapterKeyRef.current = viewKey;
+      recordChapterView(story.id, chapter.id);
+    }
+    if (story?.status === 'published' && viewedStoryIdRef.current !== story.id) {
+      viewedStoryIdRef.current = story.id;
+      recordStoryView(story.id);
+    }
+  }, [story, chapter, state.isVIP, recordStoryView, recordChapterView]);
 
   useEffect(() => {
     if (story && chapter) {
@@ -86,8 +125,11 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <p className="text-charcoal-muted">ไม่พบตอนนี้</p>
-        <button onClick={back} className="mt-4 text-terracotta-500 font-medium">
-          ย้อนกลับ
+        <button
+          onClick={() => navigate({ name: 'story', storyId })}
+          className="mt-4 text-terracotta-500 font-medium"
+        >
+          กลับหน้ารายละเอียดนิยาย
         </button>
       </div>
     );
@@ -101,7 +143,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   const nextChapter =
     currentIdx < publishedChapters.length - 1 ? publishedChapters[currentIdx + 1] : null;
 
-  const isVIPChapter = chapter.access === 'vip' && !story.isFree;
+  const isVIPChapter = chapter.access === 'vip';
   const locked = isVIPChapter && !state.isVIP;
 
   const themeClass =
@@ -112,39 +154,58 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
         : '';
 
   const fontClass = state.fontFamily === 'sarabun' ? 'font-sarabun' : 'font-plex';
-  const isAuthor = true;
   const isEn = !!translatedContent;
 
-  const comments = getComments(chapter.id);
+  const comments = getComments(chapter.id).map((comment) =>
+    comment.isOwn
+      ? {
+          ...comment,
+          author: state.profile.displayName.trim() || 'คุณ',
+          avatarUrl: state.profile.avatarUrl,
+          isVIP: state.isVIP,
+        }
+      : comment,
+  );
   const tips = getTips(chapter.id);
 
   const handleSendComment = () => {
-    if (commentText.trim()) {
-      addComment(chapter.id, commentText.trim(), false);
+    if (commentText.trim() || selectedSticker) {
+      addComment(story.id, chapter.id, commentText.trim(), selectedSticker || undefined);
       setCommentText('');
+      setSelectedSticker(null);
     }
   };
 
-  const handleStickerClick = (emoji: string) => {
-    addComment(chapter.id, emoji, true);
+  const handleStickerClick = (stickerId: string, type: 'emoji' | 'art') => {
+    const sticker = { id: stickerId, type };
+    if (commentText.trim()) {
+      setSelectedSticker(sticker);
+    } else {
+      addComment(story.id, chapter.id, '', sticker);
+    }
     setShowStickers(false);
   };
 
-  const handleArtStickerClick = (sticker: { id: string; label: string; svg: string }) => {
-    addComment(chapter.id, sticker.svg, true);
-    setShowStickers(false);
-  };
-
-  const handleTip = (amount: number, label: string) => {
-    addTip(chapter.id, amount, label);
-    setTipSuccess(`${label} ${amount}฿ ส่งถึงนักเขียนแล้ว!`);
+  const handleConfirmDonation = () => {
+    if (!pendingDonation) return;
+    addDonation(story.id, chapter.id, {
+      stickerId: pendingDonation.id,
+      stickerEmoji: pendingDonation.emoji,
+      label: pendingDonation.label,
+      amount: pendingDonation.amount,
+      paymentMethod,
+      message: donationMessage.trim() || 'ขอบคุณสำหรับนิยายสนุกๆ นะคะ!',
+    });
+    setPendingDonation(null);
+    setDonationMessage('');
+    setTipSuccess('โดเนทสนับสนุนนักเขียนสำเร็จ ขอบคุณค่ะ!');
     setTimeout(() => {
       setTipSuccess(null);
-      setShowTipJar(false);
     }, 2000);
   };
 
   const handleTranslate = async () => {
+    setTranslationError(null);
     if (isEn) {
       setTranslatedContent(null);
       setTranslatedTitle(null);
@@ -156,12 +217,17 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
         translateText(chapter.content, 'th', 'en'),
         translateText(chapter.title, 'th', 'en'),
       ]);
+      if (content === chapter.content && title === chapter.title) {
+        setTranslationError('แปลภาษาไม่สำเร็จในขณะนี้ ลองอีกครั้งภายหลัง');
+        return;
+      }
       setTranslatedContent(content);
       setTranslatedTitle(title);
     } catch {
-      // keep original
+      setTranslationError('แปลภาษาไม่สำเร็จในขณะนี้ ลองอีกครั้งภายหลัง');
+    } finally {
+      setTranslating(false);
     }
-    setTranslating(false);
   };
 
   const displayTitle = translatedTitle || chapter.title;
@@ -181,11 +247,12 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
       >
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <button
-            onClick={back}
+            onClick={() => navigate({ name: 'story', storyId: story.id })}
             className="flex items-center gap-1 text-sm font-medium hover:text-terracotta-500 transition"
+            aria-label="กลับหน้ารายละเอียดนิยาย"
           >
             <ChevronLeft size={20} />
-            ย้อนกลับ
+            กลับหน้ารายละเอียดเรื่อง
           </button>
           <div className="flex items-center gap-1">
             <button
@@ -288,17 +355,18 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
         {locked ? (
           <div className="flex flex-col items-center justify-center py-32 text-center">
             <Lock size={48} className="text-charcoal-muted mb-4" />
-            <h2 className="text-xl font-bold mb-2">ตอนนี้สำหรับสมาชิก VIP</h2>
+            <h2 className="text-xl font-bold mb-2">ตอนนี้สงวนสิทธิ์เฉพาะสมาชิก VIP รายเดือนเท่านั้น</h2>
             <p className="text-sm text-charcoal-muted mb-6">
-              สมัครสมาชิกพรีเมียมเพื่ออ่านตอนนี้และทุกตอนที่เหลือ
+              สมัครสมาชิก VIP รายเดือนเพื่อปลดล็อกทุกตอน VIP โดยไม่ต้องจ่ายเพิ่มเป็นรายตอน
             </p>
             <button
-              onClick={() => navigate({ name: 'story', storyId: story.id })}
+              onClick={() => setVIP(true, story.id)}
               className="bg-terracotta-500 hover:bg-terracotta-600 text-white px-6 py-3 rounded-2xl font-bold text-sm transition shadow-lg active:scale-95"
             >
               <Crown size={16} className="inline mr-1" />
-              สมัคร VIP 59฿/เดือน
+              สมัครสมาชิก VIP — 59 บาท/เดือน
             </button>
+            <p className="mt-3 text-[10px] text-charcoal-muted">ระบบสมัครสมาชิกนี้เป็นตัวอย่างจำลอง ไม่เรียกเก็บเงินจริง</p>
           </div>
         ) : (
           <>
@@ -307,6 +375,19 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               {story.title} · โดย {story.penName}
               {isEn && <span className="ml-2 text-terracotta-500">EN</span>}
             </p>
+            <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-charcoal-muted" aria-label="ยอดเข้าชม">
+              <span className="inline-flex items-center gap-1">
+                <Eye size={13} />
+                ยอดอ่านเรื่อง {formatCount(story.readCount)}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Eye size={13} />
+                ตอนนี้ {formatCount(chapter.readCount)}
+              </span>
+            </div>
+            {translationError && (
+              <p className="mb-4 text-xs text-red-500" role="alert">{translationError}</p>
+            )}
             <div
               className={`prose-reader ${fontClass}`}
               style={{ fontSize: `${state.fontSize}px`, lineHeight: 2 }}
@@ -331,6 +412,14 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                 ตอนก่อนหน้า
               </button>
               <button
+                type="button"
+                onClick={() => setShowChapterList(true)}
+                className="flex items-center gap-1 rounded-full bg-cream-100 px-4 py-2.5 text-sm font-medium text-charcoal transition hover:bg-cream-200"
+              >
+                <List size={16} />
+                สารบัญ
+              </button>
+              <button
                 disabled={!nextChapter}
                 onClick={() =>
                   nextChapter &&
@@ -347,77 +436,126 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               </button>
             </div>
 
-            {/* Tip Jar */}
-            <div className="mt-8 bg-terracotta-50 rounded-2xl p-4 text-center">
-              <h3 className="text-sm font-bold text-charcoal mb-1">โดเนทให้นักเขียน</h3>
-              <p className="text-xs text-charcoal-muted mb-3">
-                ส่งกำลังใจให้นักเขียนที่เขียนเรื่องที่คุณชอบ
-              </p>
-              <div className="flex gap-2 justify-center">
-                {TIPS.map((tip) => (
-                  <button
-                    key={tip.amount}
-                    onClick={() => handleTip(tip.amount, tip.label)}
-                    className="flex flex-col items-center gap-0.5 bg-white px-3 py-2 rounded-xl shadow-sm hover:shadow-md transition active:scale-95 border border-terracotta-100"
-                  >
-                    <span className="text-lg">{tip.emoji}</span>
-                    <span className="text-xs font-semibold text-charcoal">{tip.label}</span>
-                    <span className="text-[10px] text-terracotta-500">{tip.amount}฿</span>
-                  </button>
-                ))}
-              </div>
-              {tips.length > 0 && (
-                <p className="text-[10px] text-charcoal-muted mt-2">
-                  ได้รับ {tips.length} รางวัลจากผู้อ่านแล้ว
+            {story.status === 'published' && (
+              <section className="mt-8 rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-rose-50 to-white p-4 shadow-sm sm:p-5" aria-label="สติกเกอร์โดเนท">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-charcoal">สติกเกอร์โดเนทสนับสนุนนักเขียน</h3>
+                    <p className="mt-1 text-xs text-charcoal-muted">
+                      เลือกของขวัญเพื่อส่งกำลังใจ ทุกครั้งต้องยืนยันก่อนบันทึก
+                    </p>
+                  </div>
+                  <Heart size={20} className="shrink-0 text-rose-400" fill="currentColor" />
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { title: 'กำลังใจเล็กๆ', range: [9, 19, 29] },
+                    { title: 'เปย์ระดับกลาง', range: [59, 99, 199] },
+                    { title: 'สายเปย์ตัวจริง', range: [499, 999, 1999] },
+                  ].map((tier) => (
+                    <div key={tier.title}>
+                      <h4 className="mb-2 text-xs font-bold text-amber-900">{tier.title}</h4>
+                      <div className="grid grid-cols-3 gap-2">
+                        {DONATION_STICKERS.filter((sticker) => tier.range.includes(sticker.amount)).map((sticker) => (
+                          <button
+                            key={sticker.id}
+                            type="button"
+                            onClick={() => {
+                              setPendingDonation(sticker);
+                              setPaymentMethod('card');
+                            }}
+                            className="flex min-h-28 flex-col items-center justify-center rounded-2xl border border-white bg-white/90 p-2 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md active:scale-95"
+                          >
+                            <span className="text-4xl leading-none" aria-hidden="true">{sticker.emoji}</span>
+                            <span className="mt-2 text-[10px] font-semibold leading-tight text-charcoal sm:text-xs">
+                              {sticker.label}
+                            </span>
+                            <span className="mt-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-extrabold text-amber-900">
+                              ฿{sticker.amount.toLocaleString('th-TH')}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {tips.length > 0 && (
+                  <p className="mt-3 text-center text-[10px] text-charcoal-muted">
+                    มีประวัติการสนับสนุน {tips.length} รายการในตอนนี้
+                  </p>
+                )}
+                <p className="mt-3 text-center text-[10px] text-charcoal-muted">
+                  ระบบชำระเงินนี้เป็นตัวอย่างจำลอง ไม่เรียกเก็บเงินจริง
                 </p>
-              )}
-            </div>
+              </section>
+            )}
 
-            {/* Comments */}
-            <div className="mt-8">
+            {story.status === 'published' && (
+            <section className="mt-8" aria-label="ความคิดเห็นใต้นิยาย">
               <h3 className="text-sm font-bold text-charcoal mb-4">
                 ความคิดเห็น ({comments.length})
               </h3>
 
               {/* Comment input */}
-              <div className="flex gap-2 mb-3">
-                <input
-                  type="text"
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}
-                  placeholder="แสดงความคิดเห็น..."
-                  className="flex-1 px-4 py-2.5 rounded-full bg-black/5 border border-transparent focus:border-terracotta-300 focus:outline-none text-sm"
-                />
-                <button
-                  onClick={() => {
-                    setShowStickers(!showStickers);
-                    setStickerTab('emoji');
-                  }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition shrink-0"
-                >
-                  <Smile size={18} />
-                </button>
-                <button
-                  onClick={() => {
-                    setShowStickers(!showStickers);
-                    setStickerTab('art');
-                  }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition shrink-0"
-                >
-                  <Palette size={18} />
-                </button>
-                <button
-                  onClick={handleSendComment}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-terracotta-500 text-white hover:bg-terracotta-600 transition shrink-0 active:scale-90"
-                >
-                  <Send size={16} />
-                </button>
+              <div className="mb-3 rounded-2xl border border-cream-200 bg-white/70 p-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}
+                    placeholder="แสดงความคิดเห็น..."
+                    className="min-w-0 flex-1 rounded-full border border-transparent bg-black/5 px-4 py-2.5 text-sm focus:border-terracotta-300 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowStickers(!showStickers);
+                      setStickerTab('art');
+                    }}
+                    aria-label="เลือกสติกเกอร์แสดงอารมณ์"
+                    aria-expanded={showStickers}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-terracotta-100 text-terracotta-700 transition hover:bg-terracotta-200"
+                  >
+                    <Palette size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendComment}
+                    disabled={!commentText.trim() && !selectedSticker}
+                    aria-label="ส่งความคิดเห็น"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-terracotta-500 text-white transition hover:bg-terracotta-600 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
+                {selectedSticker && (
+                  <div className="mt-3 flex items-center gap-2 rounded-xl bg-terracotta-50 px-3 py-2">
+                    <ReactionStickerPreview sticker={selectedSticker} className="h-12 w-12" />
+                    <span className="flex-1 text-xs font-medium text-charcoal">
+                      แนบสติกเกอร์ {getStickerLabel(selectedSticker)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSticker(null)}
+                      aria-label="นำสติกเกอร์ที่เลือกออก"
+                      className="rounded-full p-1 text-charcoal-muted hover:bg-terracotta-100 hover:text-charcoal"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Sticker tray with tabs */}
               {showStickers && (
                 <div className="mb-4 bg-black/5 rounded-2xl p-3 animate-slide-down">
+                  <div className="mb-3">
+                    <p className="text-xs font-bold text-charcoal">สติกเกอร์คอมเมนต์ฟรี</p>
+                    <p className="mt-1 text-[10px] text-charcoal-muted">
+                      แตะเพื่อส่งได้เลย หรือพิมพ์ข้อความก่อนเพื่อแนบสติกเกอร์
+                    </p>
+                  </div>
                   {/* Tab switcher */}
                   <div className="flex gap-2 mb-3">
                     <button
@@ -429,7 +567,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                       }`}
                     >
                       <Smile size={14} />
-                      อิโมจิ
+                      อารมณ์ฟรี
                     </button>
                     <button
                       onClick={() => setStickerTab('art')}
@@ -440,7 +578,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                       }`}
                     >
                       <Palette size={14} />
-                      สติกเกอร์การ์ตูน
+                      สติกเกอร์ฟรี
                     </button>
                   </div>
 
@@ -448,10 +586,12 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                     <div className="grid grid-cols-9 gap-1">
                       {STICKERS.map((sticker) => (
                         <button
+                          type="button"
                           key={sticker.id}
-                          onClick={() => handleStickerClick(sticker.emoji)}
+                          onClick={() => handleStickerClick(sticker.id, 'emoji')}
                           title={sticker.label}
-                          className="aspect-square flex items-center justify-center rounded-lg hover:bg-white/50 transition text-lg active:scale-90"
+                          aria-label={`ส่งสติกเกอร์ ${sticker.label}`}
+                          className="aspect-square flex items-center justify-center rounded-lg hover:bg-white/50 transition text-2xl active:scale-90"
                         >
                           {sticker.emoji}
                         </button>
@@ -461,15 +601,14 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                     <div className="grid grid-cols-4 gap-2">
                       {ART_STICKERS.map((sticker) => (
                         <button
+                          type="button"
                           key={sticker.id}
-                          onClick={() => handleArtStickerClick(sticker)}
+                          onClick={() => handleStickerClick(sticker.id, 'art')}
                           title={sticker.label}
+                          aria-label={`ส่งสติกเกอร์ ${sticker.label}`}
                           className="bg-white rounded-xl p-1.5 hover:shadow-md transition active:scale-95 flex flex-col items-center"
                         >
-                          <div
-                            className="w-full aspect-square"
-                            dangerouslySetInnerHTML={{ __html: sticker.svg }}
-                          />
+                          <ReactionStickerPreview sticker={{ id: sticker.id, type: 'art' }} className="w-full aspect-square" />
                           <span className="text-[8px] text-charcoal-muted mt-0.5 line-clamp-1">
                             {sticker.label}
                           </span>
@@ -487,80 +626,312 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                     ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความเห็น!
                   </p>
                 ) : (
-                  comments.map((comment) => <CommentItem key={comment.id} comment={comment} isAuthor={isAuthor} onDelete={deleteComment} />)
+                  comments.map((comment) => <CommentItem key={comment.id} comment={comment} onDelete={deleteComment} />)
                 )}
               </div>
-            </div>
+            </section>
+            )}
           </>
         )}
       </div>
 
       {/* Tip success toast */}
       {tipSuccess && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-charcoal text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 animate-slide-up">
-          <Heart size={18} className="text-terracotta-400" fill="currentColor" />
+        <div role="status" className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-white shadow-xl animate-slide-up">
+          <Heart size={18} className="text-emerald-100" fill="currentColor" />
           <span className="text-sm font-medium">{tipSuccess}</span>
         </div>
       )}
+      <Modal
+        open={showChapterList}
+        onClose={() => setShowChapterList(false)}
+        title={`สารบัญ · ${story.title}`}
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-2">
+          {publishedChapters.map((item) => {
+            const itemLocked = item.access === 'vip' && !state.isVIP;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setShowChapterList(false);
+                  navigate({ name: 'reader', storyId: story.id, chapterId: item.id });
+                }}
+                className="flex w-full items-center gap-3 rounded-xl bg-cream-100 p-3 text-left transition hover:bg-cream-200"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-terracotta-100 text-xs font-bold text-terracotta-700">
+                  {item.number}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-charcoal">{item.title}</span>
+                {itemLocked && (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800">VIP</span>
+                )}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => {
+              setShowChapterList(false);
+              navigate({ name: 'story', storyId: story.id });
+            }}
+            className="mt-3 w-full rounded-xl border border-cream-200 bg-white px-4 py-3 text-sm font-semibold text-terracotta-700 transition hover:bg-cream-50"
+          >
+            กลับหน้ารายละเอียดนิยาย
+          </button>
+        </div>
+      </Modal>
+      <Modal
+        open={!!pendingDonation}
+        onClose={() => setPendingDonation(null)}
+        title="ยืนยันการโดเนท"
+        maxWidth="max-w-md"
+      >
+        {pendingDonation && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-rose-50 p-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-white text-5xl shadow-sm">
+                  {pendingDonation.emoji}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-charcoal">{pendingDonation.label}</p>
+                  <p className="mt-1 text-2xl font-extrabold text-amber-700">
+                    ฿{pendingDonation.amount.toLocaleString('th-TH')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-sm font-semibold leading-relaxed text-charcoal">
+              {paymentMethod === 'card'
+                ? 'ต้องการยืนยันการโดเนทและตัดชำระเงินผ่านบัตรเครดิต/เดบิต หรือไม่?'
+                : `ต้องการยืนยันการโดเนทและชำระเงินผ่าน ${
+                    paymentMethod === 'promptpay' ? 'พร้อมเพย์ QR Code' : 'วอลเล็ต'
+                  } หรือไม่?`}
+            </p>
+
+            <fieldset>
+              <legend className="mb-2 text-xs font-bold text-charcoal">เลือกช่องทางชำระเงินจำลอง</legend>
+              <div className="space-y-2">
+                {PAYMENT_METHODS.map(({ id, label, icon: Icon }) => (
+                  <label
+                    key={id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${
+                      paymentMethod === id
+                        ? 'border-terracotta-400 bg-terracotta-50'
+                        : 'border-cream-200 bg-white hover:bg-cream-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="donation-payment-method"
+                      value={id}
+                      checked={paymentMethod === id}
+                      onChange={() => setPaymentMethod(id)}
+                      className="accent-terracotta-500"
+                    />
+                    <Icon size={18} className="text-terracotta-600" />
+                    <span className="text-sm font-medium text-charcoal">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div>
+              <label htmlFor="donation-message" className="mb-1.5 block text-xs font-semibold text-charcoal">
+                ข้อความส่งกำลังใจ
+              </label>
+              <textarea
+                id="donation-message"
+                value={donationMessage}
+                onChange={(event) => setDonationMessage(event.target.value)}
+                maxLength={240}
+                rows={2}
+                placeholder="ขอบคุณสำหรับนิยายสนุกๆ นะคะ!"
+                className="w-full resize-none rounded-xl border border-cream-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+              />
+            </div>
+
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] leading-relaxed text-amber-900">
+              โหมดทดลอง: การยืนยันจะบันทึกประวัติโดเนทและคอมเมนต์ในเครื่องเท่านั้น ไม่มีการตัดเงินจริง
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDonation(null)}
+                className="flex-1 rounded-xl bg-cream-200 py-3 text-sm font-semibold text-charcoal transition hover:bg-cream-200/80"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDonation}
+                className="flex-1 rounded-xl bg-terracotta-500 py-3 text-sm font-bold text-white transition hover:bg-terracotta-600"
+              >
+                {paymentMethod === 'card'
+                  ? 'ยืนยันชำระเงินผ่านบัตร'
+                  : paymentMethod === 'promptpay'
+                    ? 'ยืนยันชำระเงินผ่านพร้อมเพย์'
+                    : 'ยืนยันชำระเงินผ่านวอลเล็ต'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
 
 function CommentItem({
   comment,
-  isAuthor,
   onDelete,
 }: {
   comment: Comment;
-  isAuthor: boolean;
   onDelete: (id: string) => void;
 }) {
-  const isArtSticker = comment.isSticker && comment.text.includes('<svg');
+  const isLegacyArtSticker =
+    !comment.sticker && comment.isSticker && comment.text.includes('<svg');
 
   return (
     <div className="flex gap-3 group">
       <div
-        className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold"
-        style={{ backgroundColor: comment.avatarColor }}
+        className={`h-10 w-10 rounded-full shrink-0 p-0.5 ${
+          comment.isVIP
+            ? 'bg-gradient-to-br from-yellow-200 via-amber-400 to-yellow-700 shadow-[0_0_12px_rgba(251,191,36,0.55)]'
+            : 'bg-cream-200'
+        }`}
       >
-        {comment.author[0]}
+        <div
+          className="flex h-full w-full items-center justify-center overflow-hidden rounded-full text-xs font-bold text-white"
+          style={{ backgroundColor: comment.avatarColor }}
+        >
+          {comment.avatarUrl ? (
+            <img src={comment.avatarUrl} alt={`รูปโปรไฟล์ ${comment.author}`} className="h-full w-full object-cover" />
+          ) : (
+            comment.author[0]
+          )}
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-charcoal">
+      <div
+        className={`flex-1 min-w-0 ${
+          comment.donation
+            ? 'rounded-2xl border border-amber-300 bg-gradient-to-br from-amber-50 via-rose-50 to-yellow-50 p-3 shadow-md'
+            : ''
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-xs font-semibold ${comment.isVIP ? 'text-amber-700' : 'text-charcoal'}`}>
             {comment.author}
           </span>
+          {comment.isVIP ? (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-gradient-to-r from-amber-300 to-yellow-500 px-2 py-0.5 text-[9px] font-extrabold tracking-wide text-amber-950">
+              <Crown size={10} fill="currentColor" />
+              VIP
+            </span>
+          ) : (
+            <span className="rounded-full bg-cream-100 px-2 py-0.5 text-[9px] font-medium text-charcoal-muted">
+              สมาชิกทั่วไป
+            </span>
+          )}
           <span className="text-[10px] text-charcoal-muted">
             {timeAgo(comment.createdAt)}
           </span>
-          {isAuthor && (
+          {comment.isOwn && (
             <button
               onClick={() => onDelete(comment.id)}
-              className="opacity-0 group-hover:opacity-100 transition text-charcoal-muted hover:text-red-500"
+              aria-label="ลบความคิดเห็นของฉัน"
+              className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition text-charcoal-muted hover:text-red-500"
             >
               <Trash2 size={13} />
             </button>
           )}
         </div>
-        {isArtSticker ? (
+        {comment.donation ? (
+          <div className="mt-2">
+            <div className="flex items-center gap-3">
+              <span className="text-5xl leading-none" aria-label={comment.donation.label}>
+                {comment.donation.stickerEmoji}
+              </span>
+              <div>
+                <p className="text-xs font-bold text-amber-900">{comment.donation.label}</p>
+                <span className="mt-1 inline-flex rounded-full border border-amber-300 bg-gradient-to-r from-amber-200 to-yellow-300 px-2.5 py-1 text-xs font-extrabold text-amber-950 shadow-sm">
+                  สนับสนุน ฿{comment.donation.amount.toLocaleString('th-TH')}
+                </span>
+              </div>
+            </div>
+            {comment.text.trim() && (
+              <p className="mt-2 border-t border-amber-200/80 pt-2 text-sm text-amber-950">
+                {comment.text}
+              </p>
+            )}
+          </div>
+        ) : comment.sticker && (
+          <div className="mt-1 inline-flex rounded-2xl border border-cream-200 bg-white/80 p-2 shadow-sm">
+            <ReactionStickerPreview sticker={comment.sticker} className="h-24 w-24 sm:h-28 sm:w-28" />
+          </div>
+        )}
+        {isLegacyArtSticker ? (
           <div
             className="mt-1 inline-block w-20 h-20"
             dangerouslySetInnerHTML={{ __html: comment.text }}
           />
-        ) : (
+        ) : !comment.donation && comment.text.trim() ? (
           <div
             className={`mt-1 inline-block ${
-              comment.isSticker
+              comment.isSticker && !comment.sticker
                 ? 'text-2xl'
-                : 'text-sm bg-black/5 rounded-2xl px-3 py-2'
+                : comment.isVIP
+                  ? 'border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-100 text-amber-950 shadow-sm rounded-2xl px-3 py-2 text-sm'
+                  : 'text-sm bg-black/5 rounded-2xl px-3 py-2'
             }`}
           >
             {comment.text}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
+}
+
+function ReactionStickerPreview({
+  sticker,
+  className = '',
+}: {
+  sticker: NonNullable<Comment['sticker']>;
+  className?: string;
+}) {
+  if (sticker.type === 'emoji') {
+    const emoji = STICKERS.find((item) => item.id === sticker.id)?.emoji;
+    return (
+      <div className={`flex items-center justify-center text-5xl ${className}`} aria-hidden="true">
+        {emoji || '✨'}
+      </div>
+    );
+  }
+
+  const artwork = ART_STICKERS.find((item) => item.id === sticker.id);
+  if (!artwork) {
+    return <div className={className} aria-label="สติกเกอร์" />;
+  }
+
+  return (
+    <div
+      className={className}
+      role="img"
+      aria-label={artwork.label}
+      dangerouslySetInnerHTML={{ __html: artwork.svg }}
+    />
+  );
+}
+
+function getStickerLabel(sticker: NonNullable<Comment['sticker']>): string {
+  return sticker.type === 'emoji'
+    ? STICKERS.find((item) => item.id === sticker.id)?.label || 'อารมณ์'
+    : ART_STICKERS.find((item) => item.id === sticker.id)?.label || 'อารมณ์';
 }
 
 function timeAgo(ts: number): string {

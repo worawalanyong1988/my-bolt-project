@@ -1,7 +1,7 @@
 import { Search, User } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { useRouter } from '@/router';
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 
 interface HeaderProps {
   searchQuery: string;

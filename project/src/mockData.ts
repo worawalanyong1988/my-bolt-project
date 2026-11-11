@@ -11,7 +11,7 @@ function ch(
   status: 'published' | 'draft' = 'published',
   offset: number = 0,
 ): Chapter {
-  return { id, number, title, content, access, status, createdAt: now - offset };
+  return { id, number, title, content, access, status, readCount: 0, createdAt: now - offset };
 }
 
 const blStory: Story = {
@@ -29,9 +29,9 @@ const blStory: Story = {
   coverPattern: 'stars',
   status: 'published',
   isFree: false,
-  readCount: 128400,
-  likeCount: 8920,
-  bookmarkCount: 3450,
+  readCount: 0,
+  likeCount: 0,
+  bookmarkCount: 0,
   createdAt: now - 86400000 * 30,
   chapters: [
     ch(
@@ -80,9 +80,9 @@ const survivalStory: Story = {
   coverPattern: 'waves',
   status: 'published',
   isFree: false,
-  readCount: 89500,
-  likeCount: 6100,
-  bookmarkCount: 2100,
+  readCount: 0,
+  likeCount: 0,
+  bookmarkCount: 0,
   createdAt: now - 86400000 * 20,
   chapters: [
     ch(
@@ -131,9 +131,9 @@ const retroStory: Story = {
   coverPattern: 'palace',
   status: 'published',
   isFree: true,
-  readCount: 56200,
-  likeCount: 4200,
-  bookmarkCount: 1800,
+  readCount: 0,
+  likeCount: 0,
+  bookmarkCount: 0,
   createdAt: now - 86400000 * 15,
   chapters: [
     ch(
@@ -182,9 +182,9 @@ const romanceStory: Story = {
   coverPattern: 'flowers',
   status: 'published',
   isFree: false,
-  readCount: 34100,
-  likeCount: 2800,
-  bookmarkCount: 950,
+  readCount: 0,
+  likeCount: 0,
+  bookmarkCount: 0,
   createdAt: now - 86400000 * 10,
   chapters: [
     ch(
@@ -307,6 +307,26 @@ export const ART_STICKERS: { id: string; label: string; svg: string }[] = [
     label: 'รักเรื่องนี้',
     svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text x="50" y="30" font-size="20" text-anchor="middle">📚❤️</text><circle cx="50" cy="58" r="18" fill="#FBE3DC"/><circle cx="44" cy="55" r="3" fill="#2B2B2B"/><circle cx="56" cy="55" r="3" fill="#2B2B2B"/><path d="M42 65 Q50 68 58 65" stroke="#E07A5F" stroke-width="2" fill="none"/><text x="50" y="90" font-size="10" text-anchor="middle" fill="#E07A5F" font-weight="bold">รักเรื่องนี้</text></svg>`,
   },
+  {
+    id: 'blushing',
+    label: 'เขินตัวบิด',
+    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="29" fill="#FBE3DC"/><path d="M36 40 Q39 34 42 40 M58 40 Q61 34 64 40" stroke="#2B2B2B" stroke-width="3" fill="none"/><circle cx="36" cy="51" r="5" fill="#E98A91" opacity=".8"/><circle cx="64" cy="51" r="5" fill="#E98A91" opacity=".8"/><path d="M44 55 Q50 61 56 55" stroke="#E07A5F" stroke-width="2.5" fill="none"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#E07A5F" font-weight="bold">เขินตัวบิด</text></svg>`,
+  },
+  {
+    id: 'laugh-out',
+    label: 'ขำกลิ้ง',
+    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="44" r="28" fill="#FFF0B8"/><path d="M34 38 Q39 31 44 38 M56 38 Q61 31 66 38" stroke="#2B2B2B" stroke-width="3" fill="none"/><path d="M36 49 Q50 69 64 49 Q50 55 36 49Z" fill="#E07A5F"/><path d="M29 34 L22 29 M71 34 L78 29" stroke="#E07A5F" stroke-width="3" stroke-linecap="round"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#C9634A" font-weight="bold">ขำกลิ้ง</text></svg>`,
+  },
+  {
+    id: 'angry-reader',
+    label: 'โกรธแทนแล้ว',
+    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="28" fill="#F9C6B9"/><path d="M34 35 L45 40 M66 35 L55 40" stroke="#2B2B2B" stroke-width="3" stroke-linecap="round"/><circle cx="40" cy="47" r="3" fill="#2B2B2B"/><circle cx="60" cy="47" r="3" fill="#2B2B2B"/><path d="M40 62 Q50 53 60 62" stroke="#C9634A" stroke-width="3" fill="none"/><path d="M72 21 L76 29 L84 31 L77 36 L78 45 L72 40 L65 44 L67 35 L61 30 L69 29Z" fill="#E07A5F"/><text x="50" y="88" font-size="11" text-anchor="middle" fill="#C9634A" font-weight="bold">โกรธแทนแล้ว</text></svg>`,
+  },
+  {
+    id: 'nervous',
+    label: 'ลุ้นระทึก',
+    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="28" fill="#E6F2F1"/><circle cx="40" cy="42" r="4" fill="#2B2B2B"/><circle cx="60" cy="42" r="4" fill="#2B2B2B"/><ellipse cx="50" cy="57" rx="5" ry="7" fill="#2B2B2B"/><path d="M29 29 L24 23 M71 29 L76 23 M50 12 L50 19" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#2C5F7C" font-weight="bold">ลุ้นระทึก</text></svg>`,
+  },
 ];
 
 // AI cover style presets
@@ -317,21 +337,17 @@ export const COVER_STYLES: { id: string; label: string; promptSuffix: string }[]
   { id: 'romantic', label: 'โรแมนติกละมุน', promptSuffix: 'soft romantic watercolor style, pastel colors, dreamy, gentle and warm' },
 ];
 
-// Fallback cover artworks (using pollinations with preset prompts for instant loading)
-export const FALLBACK_COVERS: string[] = [
-  `https://image.pollinations.ai/prompt/beautiful%20anime%20boy%20school%20uniform%20looking%20at%20stars%20night%20sky%20vertical%20book%20cover%20illustration?width=600&height=900&nologo=true&seed=101`,
-  `https://image.pollinations.ai/prompt/apocalyptic%20city%20flooded%20tsunami%20survivor%20silhouette%20dramatic%20vertical%20book%20cover?width=600&height=900&nologo=true&seed=202`,
-  `https://image.pollinations.ai/prompt/ancient%20thai%20palace%20woman%20traditional%20dress%20historical%20elegant%20vertical%20book%20cover?width=600&height=900&nologo=true&seed=303`,
-  `https://image.pollinations.ai/prompt/flower%20shop%20rainy%20day%20romantic%20soft%20pastel%20watercolor%20vertical%20book%20cover?width=600&height=900&nologo=true&seed=404`,
-  `https://image.pollinations.ai/prompt/dark%20fantasy%20mystery%20forest%20fog%20moody%20atmosphere%20vertical%20book%20cover%20illustration?width=600&height=900&nologo=true&seed=505`,
-  `https://image.pollinations.ai/prompt/martial%20arts%20action%20warrior%20dynamic%20pose%20dramatic%20vertical%20book%20cover?width=600&height=900&nologo=true&seed=606`,
-];
-
-export const TIPS: { amount: number; label: string; emoji: string }[] = [
-  { amount: 10, label: 'ชานม', emoji: '🧋' },
-  { amount: 20, label: 'กำลังใจ', emoji: '💪' },
-  { amount: 50, label: 'ช่อดอกไม้', emoji: '💐' },
-];
+export const DONATION_STICKERS = [
+  { id: 'bubble-tea', label: 'ชานมไข่มุก', emoji: '🧋', amount: 9 },
+  { id: 'toast', label: 'ขนมปังปิ้ง', emoji: '🍞', amount: 19 },
+  { id: 'morning-coffee', label: 'กาแฟยามเช้า', emoji: '☕', amount: 29 },
+  { id: 'flower-bouquet', label: 'ช่อดอกไม้', emoji: '💐', amount: 59 },
+  { id: 'teddy-bear', label: 'ตุ๊กตาหมี', emoji: '🧸', amount: 99 },
+  { id: 'princess-crown', label: 'มงกุฎเจ้าหญิง', emoji: '👑', amount: 199 },
+  { id: 'sports-car', label: 'รถสปอร์ตสุดหรู', emoji: '🏎️', amount: 499 },
+  { id: 'mansion', label: 'คฤหาสน์หรู', emoji: '🏰', amount: 999 },
+  { id: 'rocket', label: 'จรวดทะยานฟ้า', emoji: '🚀', amount: 1999 },
+] as const;
 
 export const AVATAR_COLORS = [
   '#E07A5F',
@@ -347,44 +363,17 @@ export const AVATAR_COLORS = [
 export function getInitialState(): AppState {
   return {
     stories: STORIES,
-    bookmarks: ['story-retro-001'],
-    comments: [
-      {
-        id: 'c1',
-        chapterId: 'bl-c1',
-        author: 'นักอ่านตัวยง',
-        avatarColor: '#81B29A',
-        text: 'ตอนเปิดเรื่องสุดยอดมาก รอตอนต่อไป!',
-        isSticker: false,
-        createdAt: now - 3600000,
-      },
-      {
-        id: 'c2',
-        chapterId: 'bl-c1',
-        author: 'แฟนนิยาย',
-        avatarColor: '#B5838D',
-        text: '😱',
-        isSticker: true,
-        stickerType: 'emoji',
-        createdAt: now - 1800000,
-      },
-      {
-        id: 'c3',
-        chapterId: 'sur-c1',
-        author: 'ผู้อ่านเงียบ',
-        avatarColor: '#2C5F7C',
-        text: 'ตื่นเต้นมาก นั่งอ่านจนลืมนอน',
-        isSticker: false,
-        createdAt: now - 7200000,
-      },
-    ],
-    tips: [
-      { id: 't1', chapterId: 'bl-c1', amount: 20, label: 'กำลังใจ', donor: 'แฟนนิยาย', createdAt: now - 5400000 },
-    ],
-    progress: [
-      { storyId: 'story-bl-001', chapterId: 'bl-c2', percent: 75, updatedAt: now - 3600000 },
-      { storyId: 'story-survival-001', chapterId: 'sur-c1', percent: 40, updatedAt: now - 7200000 },
-    ],
+    bookmarks: [],
+    likedStories: [],
+    comments: [],
+    tips: [],
+    progress: [],
+    vipSubscriptions: [],
+    writerNotifications: [],
+    profile: {
+      displayName: 'คุณ',
+      bio: 'นักอ่านและนักเขียน',
+    },
     isVIP: false,
     autoRenew: true,
     readingTheme: 'paper',

@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Modal } from '@/components/Modal';
-import { Toggle } from '@/components/Toggle';
 import { Badge } from '@/components/Badge';
 import { Cover } from '@/components/Cover';
 import { StoryForm } from '@/pages/Studio';
@@ -25,12 +24,10 @@ import {
   ListOrdered,
   Link as LinkIcon,
   Eye,
-  Type,
   Sun,
   Coffee,
   Moon,
   BookOpen,
-  X,
   Indent,
   Pilcrow,
   Globe2,
@@ -78,6 +75,9 @@ export function StudioStory({ storyId }: { storyId: string }) {
     saveChapter(story.id, ch);
     setShowEditor(false);
     setEditingChapter(null);
+    if (ch.status === 'published' && editingChapter?.status !== 'published') {
+      navigate({ name: 'home' });
+    }
   };
 
   const handleDeleteChapter = (chId: string) => {
@@ -100,7 +100,7 @@ export function StudioStory({ storyId }: { storyId: string }) {
     saveStory(updatedStory);
     setShowStoryForm(false);
     if (updatedStory.status === 'published') {
-      navigate({ name: 'story', storyId: updatedStory.id });
+      navigate({ name: 'home' });
     }
   };
 
@@ -108,7 +108,7 @@ export function StudioStory({ storyId }: { storyId: string }) {
     const nextStatus = story.status === 'published' ? 'draft' : 'published';
     saveStory({ ...story, status: nextStatus });
     if (nextStatus === 'published') {
-      navigate({ name: 'story', storyId: story.id });
+      navigate({ name: 'home' });
     }
   };
 
@@ -339,6 +339,8 @@ function ChapterEditor({
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const savedLinkRange = useRef<Range | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [contentVersion, setContentVersion] = useState(0);
 
@@ -430,25 +432,66 @@ function ChapterEditor({
 
   const handleLink = () => {
     const selection = window.getSelection();
-    const selectedText = selection?.toString() || '';
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const selectionIsInEditor = !!range && !!editorRef.current?.contains(range.commonAncestorContainer);
+    savedLinkRange.current = selectionIsInEditor ? range!.cloneRange() : null;
+    const selectedText = selectionIsInEditor ? selection?.toString() || '' : '';
     setLinkText(selectedText);
     setLinkUrl('');
+    setLinkError(null);
     setLinkModalOpen(true);
   };
 
   const insertLink = () => {
-    if (!linkUrl) return;
-    const url = linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`;
-    if (linkText) {
-      const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
-      document.execCommand('insertHTML', false, linkHtml);
-    } else {
-      exec('createLink', url);
+    const enteredUrl = linkUrl.trim();
+    if (!enteredUrl) return;
+
+    let url: URL;
+    try {
+      url = new URL(/^https?:\/\//i.test(enteredUrl) ? enteredUrl : `https://${enteredUrl}`);
+    } catch {
+      setLinkError('กรุณาตรวจสอบ URL แล้วลองอีกครั้ง');
+      return;
     }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      setLinkError('รองรับเฉพาะลิงก์ http และ https');
+      return;
+    }
+
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection) return;
+
+    selection.removeAllRanges();
+    if (savedLinkRange.current && editor.contains(savedLinkRange.current.commonAncestorContainer)) {
+      selection.addRange(savedLinkRange.current);
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.addRange(range);
+    }
+
+    const anchor = document.createElement('a');
+    anchor.href = url.href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.textContent = linkText.trim() || url.host;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(anchor);
+    range.setStartAfter(anchor);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
     setContentVersion((v) => v + 1);
     setLinkModalOpen(false);
     setLinkUrl('');
     setLinkText('');
+    setLinkError(null);
+    savedLinkRange.current = null;
     editorRef.current?.focus();
   };
 
@@ -467,6 +510,7 @@ function ChapterEditor({
       content,
       access,
       status,
+      readCount: chapter?.readCount ?? 0,
       createdAt: chapter?.createdAt || Date.now(),
     };
     onSave(newChapter);
@@ -672,11 +716,15 @@ function ChapterEditor({
             <input
               type="text"
               value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
+              onChange={(e) => {
+                setLinkUrl(e.target.value);
+                setLinkError(null);
+              }}
               placeholder="https://..."
               className="w-full px-3 py-2.5 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
             />
           </FormField>
+          {linkError && <p className="text-xs text-red-500" role="alert">{linkError}</p>}
           <button
             onClick={insertLink}
             disabled={!linkUrl}

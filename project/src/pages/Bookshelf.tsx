@@ -1,8 +1,7 @@
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Cover } from '@/components/Cover';
 import { Badge } from '@/components/Badge';
-import { BackButton } from '@/components/BackButton';
 import { Bookmark, Play, Library } from 'lucide-react';
 
 export function Bookshelf() {
@@ -35,9 +34,15 @@ export function Bookshelf() {
         <div className="space-y-3">
           {bookmarked.map((story) => {
             const progress = getProgress(story.id);
-            const lastChapter = progress
+            const savedChapter = progress
               ? story.chapters.find((c) => c.id === progress.chapterId)
-              : story.chapters.find((c) => c.status === 'published');
+              : undefined;
+            const lastChapter = savedChapter?.status === 'published'
+              ? savedChapter
+              : story.chapters
+                  .filter((c) => c.status === 'published' && (!savedChapter || c.number <= savedChapter.number))
+                  .sort((a, b) => b.number - a.number)[0] ??
+                story.chapters.find((c) => c.status === 'published');
             return (
               <div
                 key={story.id}
@@ -67,6 +72,11 @@ export function Bookshelf() {
                         {story.chapters.filter((c) => c.status === 'published').length} ตอน
                       </span>
                     </div>
+                    {progress && lastChapter && (
+                      <p className="mt-1 text-[11px] font-semibold text-terracotta-700">
+                        อ่านถึงตอนที่ {lastChapter.number}: {lastChapter.title}
+                      </p>
+                    )}
                     {progress && (
                       <div className="mt-2 h-1.5 bg-cream-200 rounded-full overflow-hidden">
                         <div
@@ -77,14 +87,13 @@ export function Bookshelf() {
                     )}
                   </div>
                   <button
-                    onClick={() =>
-                      lastChapter &&
-                      navigate({ name: 'reader', storyId: story.id, chapterId: lastChapter.id })
-                    }
+                    onClick={() => lastChapter
+                      ? navigate({ name: 'reader', storyId: story.id, chapterId: lastChapter.id })
+                      : navigate({ name: 'story', storyId: story.id })}
                     className="inline-flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white px-4 py-1.5 rounded-full text-xs font-semibold transition self-start mt-2 active:scale-95"
                   >
                     <Play size={12} fill="white" />
-                    อ่านต่อ
+                    {lastChapter ? 'อ่านต่อ' : 'ดูนิยาย'}
                   </button>
                 </div>
               </div>

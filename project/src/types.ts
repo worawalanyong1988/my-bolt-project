@@ -32,6 +32,7 @@ export interface Chapter {
   content: string; // HTML
   access: ChapterAccess;
   status: StoryStatus;
+  readCount: number;
   createdAt: number;
 }
 
@@ -48,6 +49,7 @@ export interface Story {
   coverPattern: string; // pattern type for AI-generated covers
   coverImage?: string; // data URL or remote URL for covers
   coverAiUrl?: string; // AI-generated cover URL
+  coverPrompt?: string;
   status: StoryStatus;
   isFree: boolean; // fully free novel
   readCount: number;
@@ -55,6 +57,7 @@ export interface Story {
   bookmarkCount: number;
   chapters: Chapter[];
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Comment {
@@ -62,20 +65,46 @@ export interface Comment {
   chapterId: string;
   author: string;
   avatarColor: string;
+  avatarUrl?: string;
+  isVIP?: boolean;
+  isOwn?: boolean;
   text: string;
   isSticker: boolean;
   stickerType?: 'emoji' | 'art';
+  sticker?: {
+    id: string;
+    type: 'emoji' | 'art';
+  };
+  donation?: {
+    stickerId: string;
+    stickerEmoji: string;
+    label: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+  };
   createdAt: number;
+}
+
+export interface UserProfile {
+  displayName: string;
+  bio: string;
+  avatarUrl?: string;
 }
 
 export interface Tip {
   id: string;
+  storyId?: string;
   chapterId: string;
   amount: number;
   label: string;
   donor: string;
+  stickerId?: string;
+  stickerEmoji?: string;
+  paymentMethod?: PaymentMethod;
   createdAt: number;
 }
+
+export type PaymentMethod = 'card' | 'promptpay' | 'wallet';
 
 export interface ReadingProgress {
   storyId: string;
@@ -84,12 +113,33 @@ export interface ReadingProgress {
   updatedAt: number;
 }
 
+export interface VipSubscription {
+  id: string;
+  storyId?: string;
+  createdAt: number;
+}
+
+export type WriterNotificationKind = 'comment' | 'like' | 'vip' | 'donation';
+
+export interface WriterNotification {
+  id: string;
+  kind: WriterNotificationKind;
+  storyId?: string;
+  chapterId?: string;
+  message: string;
+  createdAt: number;
+}
+
 export interface AppState {
   stories: Story[];
   bookmarks: string[]; // story IDs
+  likedStories: string[];
   comments: Comment[];
   tips: Tip[];
   progress: ReadingProgress[];
+  vipSubscriptions: VipSubscription[];
+  writerNotifications: WriterNotification[];
+  profile: UserProfile;
   isVIP: boolean;
   autoRenew: boolean;
   readingTheme: ReadingTheme;

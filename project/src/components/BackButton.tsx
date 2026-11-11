@@ -7,7 +7,7 @@ interface BackButtonProps {
 }
 
 export function BackButton({ label = 'ย้อนกลับ', onBack }: BackButtonProps) {
-  const { back, navigate } = useRouter();
+  const { back } = useRouter();
   return (
     <button
       onClick={onBack || back}

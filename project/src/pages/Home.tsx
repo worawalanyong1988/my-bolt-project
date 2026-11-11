@@ -1,39 +1,57 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
-import { NovelCard, formatCount } from '@/components/NovelCard';
+import { NovelCard } from '@/components/NovelCard';
+import { formatCount } from '@/utils/formatCount';
 import { Cover } from '@/components/Cover';
 import { Badge } from '@/components/Badge';
-import { ChevronRight, Play, Eye } from 'lucide-react';
+import { Play, Eye, X } from 'lucide-react';
 import { CATEGORY_FILTERS as CAT_FILTERS } from '@/mockData';
 
 interface HomeProps {
   searchQuery: string;
+  activeTag: string | null;
+  onTagSelect: (tag: string) => void;
+  onTagClear: () => void;
+  onSearchClear: () => void;
 }
 
-export function Home({ searchQuery }: HomeProps) {
-  const { state, getProgress, getStory } = useApp();
+type StorySort = 'recent' | 'views' | 'likes';
+
+export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearchClear }: HomeProps) {
+  const { state, getStory } = useApp();
   const { navigate } = useRouter();
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string>('ทั้งหมด');
+  const [sortBy, setSortBy] = useState<StorySort>('recent');
 
   const publishedStories = useMemo(
     () => state.stories.filter((s) => s.status === 'published'),
     [state.stories],
   );
 
-  // Search filtering
   const filteredStories = useMemo(() => {
-    if (!searchQuery.trim()) return null;
-    const q = searchQuery.toLowerCase();
-    return publishedStories.filter(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.tags.some((t) => t.toLowerCase().includes(q)) ||
-        s.category.toLowerCase().includes(q) ||
-        s.synopsis.toLowerCase().includes(q),
-    );
-  }, [searchQuery, publishedStories]);
+    const rawQuery = searchQuery.trim().toLocaleLowerCase('th-TH');
+    const isTagSearch = rawQuery.startsWith('#');
+    const query = rawQuery.replace(/^#/, '');
+    const tagQuery = activeTag?.replace(/^#/, '').toLocaleLowerCase('th-TH');
+    const matches = publishedStories.filter((story) => {
+      const tags = story.tags.map((tag) => tag.replace(/^#/, '').toLocaleLowerCase('th-TH'));
+      const matchesSearch = !query || (isTagSearch
+        ? tags.some((tag) => tag.includes(query))
+        : story.title.toLocaleLowerCase('th-TH').includes(query) ||
+          story.synopsis.toLocaleLowerCase('th-TH').includes(query) ||
+          story.category.toLocaleLowerCase('th-TH').includes(query) ||
+          tags.some((tag) => tag.includes(query)));
+      return matchesSearch && (!tagQuery || tags.some((tag) => tag === tagQuery));
+    });
+
+    return matches.sort((a, b) => {
+      if (sortBy === 'views') return b.readCount - a.readCount;
+      if (sortBy === 'likes') return b.likeCount - a.likeCount;
+      return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
+    });
+  }, [activeTag, publishedStories, searchQuery, sortBy]);
 
   // Auto-sliding carousel
   const featured = useMemo(() => publishedStories.slice(0, 3), [publishedStories]);
@@ -46,7 +64,13 @@ export function Home({ searchQuery }: HomeProps) {
     return () => clearInterval(timer);
   }, [featured.length]);
 
-  const freeNovels = publishedStories.filter((s) => s.isFree);
+  const sortStories = (stories: typeof publishedStories) =>
+    [...stories].sort((a, b) => {
+      if (sortBy === 'views') return b.readCount - a.readCount;
+      if (sortBy === 'likes') return b.likeCount - a.likeCount;
+      return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
+    });
+  const freeNovels = sortStories(publishedStories.filter((s) => s.isFree));
   const trending = [...publishedStories].sort((a, b) => b.readCount - a.readCount);
   const continueReading = state.progress
     .map((p) => ({ progress: p, story: getStory(p.storyId) }))
@@ -54,24 +78,59 @@ export function Home({ searchQuery }: HomeProps) {
     .sort((a, b) => b.progress.updatedAt - a.progress.updatedAt)
     .slice(0, 6);
 
-  const categoryStories =
+  const categoryStories = sortStories(
     activeCategory === 'ทั้งหมด'
       ? publishedStories
-      : publishedStories.filter((s) => s.category === activeCategory);
+      : publishedStories.filter((s) => s.category === activeCategory),
+  );
 
-  // Search results override everything
-  if (filteredStories) {
+  const isFiltering = Boolean(searchQuery.trim() || activeTag);
+  const sortControl = (
+    <label className="flex items-center gap-2 text-xs font-medium text-charcoal-muted">
+      เรียงตาม
+      <select
+        value={sortBy}
+        onChange={(event) => setSortBy(event.target.value as StorySort)}
+        className="rounded-lg border border-cream-200 bg-white px-2.5 py-2 text-xs font-semibold text-charcoal focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+      >
+        <option value="recent">อัปเดตล่าสุด</option>
+        <option value="views">ยอดเข้าชมสูงสุด</option>
+        <option value="likes">ยอดถูกใจสูงสุด</option>
+      </select>
+    </label>
+  );
+
+  if (isFiltering) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-4">
-        <h2 className="text-lg font-bold text-charcoal mb-3">
-          ผลการค้นหา "{searchQuery}" ({filteredStories.length})
-        </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-bold text-charcoal">
+              {activeTag ? 'นิยายตามแท็ก' : 'ผลการค้นหา'} ({filteredStories.length})
+            </h2>
+            {activeTag && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-terracotta-50 px-3 py-1 text-xs font-semibold text-terracotta-700">
+                #{activeTag.replace(/^#/, '')}
+                <button type="button" onClick={onTagClear} aria-label="ล้างตัวกรองแท็ก" className="rounded-full hover:bg-terracotta-100">
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+          </div>
+          {sortControl}
+        </div>
         {filteredStories.length === 0 ? (
-          <p className="text-charcoal-muted text-center py-20">ไม่พบนิยายที่ตรงกับการค้นหา</p>
+          <div className="py-16 text-center">
+            <p className="text-sm text-charcoal-muted">ขออภัย ไม่พบนิยายที่ตรงกับคำค้นหาหรือแท็กนี้</p>
+            <div className="mt-4 flex justify-center gap-2">
+              {searchQuery.trim() && <button type="button" onClick={onSearchClear} className="rounded-full bg-terracotta-500 px-4 py-2 text-xs font-semibold text-white hover:bg-terracotta-600">ล้างคำค้นหา</button>}
+              {activeTag && <button type="button" onClick={onTagClear} className="rounded-full bg-cream-200 px-4 py-2 text-xs font-semibold text-charcoal hover:bg-cream-300">ล้างตัวกรองแท็ก</button>}
+            </div>
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {filteredStories.map((story) => (
-              <NovelCard key={story.id} story={story} />
+              <NovelCard key={story.id} story={story} onTagClick={onTagSelect} />
             ))}
           </div>
         )}
@@ -81,6 +140,7 @@ export function Home({ searchQuery }: HomeProps) {
 
   return (
     <div className="max-w-5xl mx-auto pb-4">
+      <div className="flex justify-end px-4 pt-4">{sortControl}</div>
       {/* Hero Carousel */}
       {featured.length > 0 && (
         <div className="relative h-64 sm:h-80 overflow-hidden rounded-b-3xl sm:mx-4 sm:rounded-3xl sm:mt-4">
@@ -112,6 +172,20 @@ export function Home({ searchQuery }: HomeProps) {
                       <p className="text-white/80 text-sm line-clamp-2 mt-1 hidden sm:block">
                         {story.synopsis}
                       </p>
+                      {story.tags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {story.tags.slice(0, 3).map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => onTagSelect(tag)}
+                              className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-medium text-white hover:bg-white/30"
+                            >
+                              #{tag.replace(/^#/, '')}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <button
                         onClick={() => {
                           const firstChapter = story.chapters.find((c) => c.status === 'published');
@@ -153,12 +227,20 @@ export function Home({ searchQuery }: HomeProps) {
           <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 pb-1">
             {continueReading.map(({ progress, story }) => {
               if (!story) return null;
-              const chapter = story.chapters.find((c) => c.id === progress.chapterId);
+              const savedChapter = story.chapters.find((c) => c.id === progress.chapterId);
+              const chapter = savedChapter?.status === 'published'
+                ? savedChapter
+                : story.chapters
+                    .filter((c) => c.status === 'published' && (!savedChapter || c.number <= savedChapter.number))
+                    .sort((a, b) => b.number - a.number)[0] ??
+                  story.chapters.find((c) => c.status === 'published');
               return (
                 <button
                   key={progress.storyId}
                   onClick={() =>
-                    navigate({ name: 'reader', storyId: story.id, chapterId: progress.chapterId })
+                    chapter
+                      ? navigate({ name: 'reader', storyId: story.id, chapterId: chapter.id })
+                      : navigate({ name: 'story', storyId: story.id })
                   }
                   className="flex gap-3 bg-cream-100 rounded-2xl p-3 w-72 shrink-0 items-center hover:shadow-md transition text-left"
                 >
@@ -169,6 +251,9 @@ export function Home({ searchQuery }: HomeProps) {
                     <h4 className="text-sm font-semibold text-charcoal line-clamp-1">{story.title}</h4>
                     <p className="text-xs text-charcoal-muted line-clamp-1 mt-0.5">
                       {chapter ? `ตอนที่ ${chapter.number}: ${chapter.title}` : ''}
+                    </p>
+                    <p className="mt-1 text-[10px] font-medium text-terracotta-700">
+                      {chapter ? `อ่านถึงตอนที่ ${chapter.number}` : 'ยังไม่มีประวัติการอ่าน'}
                     </p>
                     <div className="mt-2 h-1.5 bg-cream-200 rounded-full overflow-hidden">
                       <div
@@ -188,13 +273,13 @@ export function Home({ searchQuery }: HomeProps) {
       {/* Free Novels */}
       {freeNovels.length > 0 && (
         <Section title="อ่านฟรีจบเรื่อง" badge={<Badge variant="free">FREE</Badge>}>
-          <ScrollRow stories={freeNovels} />
+          <ScrollRow stories={freeNovels} onTagClick={onTagSelect} />
         </Section>
       )}
 
       {/* Trending */}
       <Section title="มาแรงประจำสัปดาห์" icon={<span className="text-base">🔥</span>}>
-        <ScrollRow stories={trending} showReadCount />
+        <ScrollRow stories={trending} showReadCount onTagClick={onTagSelect} />
       </Section>
 
       {/* Category Filter */}
@@ -219,7 +304,7 @@ export function Home({ searchQuery }: HomeProps) {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 px-4 mt-4">
           {categoryStories.map((story) => (
-            <NovelCard key={story.id} story={story} />
+            <NovelCard key={story.id} story={story} onTagClick={onTagSelect} />
           ))}
         </div>
         {categoryStories.length === 0 && (
@@ -258,15 +343,17 @@ function Section({
 function ScrollRow({
   stories,
   showReadCount,
+  onTagClick,
 }: {
   stories: import('@/types').Story[];
   showReadCount?: boolean;
+  onTagClick?: (tag: string) => void;
 }) {
   return (
     <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 pb-1">
       {stories.map((story) => (
         <div key={story.id} className="flex flex-col">
-          <NovelCard story={story} />
+          <NovelCard story={story} onTagClick={onTagClick} />
           {showReadCount && (
             <div className="flex items-center gap-1 mt-1 text-[10px] text-charcoal-muted">
               <Eye size={10} />

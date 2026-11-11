@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
-import { AppProvider, useApp } from '@/store';
-import { useRouter } from '@/router';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { AppProvider } from '@/store';
+import { useApp } from '@/useApp';
+import { useRouter, type Route } from '@/router';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
-import { BackButton, StudioBackButton } from '@/components/BackButton';
+import { StudioBackButton } from '@/components/BackButton';
 import { Home } from '@/pages/Home';
 import { Bookshelf } from '@/pages/Bookshelf';
 import { StoryDetail } from '@/pages/StoryDetail';
@@ -11,14 +12,35 @@ import { Reader } from '@/pages/Reader';
 import { Profile } from '@/pages/Profile';
 import { Studio } from '@/pages/Studio';
 import { StudioStory } from '@/pages/StudioStory';
+import { WriterStatistics } from '@/pages/WriterStatistics';
 
 function AppContent() {
   const { route, navigate } = useRouter();
-  const { state } = useApp();
+  const { state, persistenceError } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [statisticsAccess, setStatisticsAccess] = useState(false);
+  const previousRoute = useRef<Route['name'] | null>(null);
+  const handleTagSelect = useCallback((tag: string) => {
+    setActiveTag(tag.replace(/^#/, ''));
+    setSearchQuery('');
+    navigate({ name: 'home' });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (route.name === 'studio-statistics') {
+      if (!statisticsAccess) navigate({ name: 'studio' });
+    } else if (previousRoute.current === 'studio-statistics') {
+      setStatisticsAccess(false);
+    }
+    previousRoute.current = route.name;
+  }, [route, statisticsAccess, navigate]);
 
   const isReader = route.name === 'reader';
-  const isStudio = route.name === 'studio' || route.name === 'studio-story';
+  const isStudio =
+    route.name === 'studio' ||
+    route.name === 'studio-story' ||
+    route.name === 'studio-statistics';
 
   const showHeader = !isReader && !isStudio;
   const showBottomNav = !isReader && !isStudio;
@@ -26,23 +48,41 @@ function AppContent() {
   const content = useMemo(() => {
     switch (route.name) {
       case 'home':
-        return <Home searchQuery={searchQuery} />;
+        return (
+          <Home
+            searchQuery={searchQuery}
+            activeTag={activeTag}
+            onTagSelect={handleTagSelect}
+            onTagClear={() => setActiveTag(null)}
+            onSearchClear={() => setSearchQuery('')}
+          />
+        );
       case 'bookshelf':
         return <Bookshelf />;
       case 'story':
-        return <StoryDetail storyId={route.storyId} />;
+        return <StoryDetail storyId={route.storyId} onTagSelect={handleTagSelect} />;
       case 'reader':
-        return <Reader storyId={route.storyId} chapterId={route.chapterId} />;
+        return <Reader key={`${route.storyId}:${route.chapterId}`} storyId={route.storyId} chapterId={route.chapterId} />;
       case 'profile':
         return <Profile />;
       case 'studio':
-        return <Studio />;
+        return <Studio onStatisticsOpen={() => setStatisticsAccess(true)} />;
+      case 'studio-statistics':
+        return statisticsAccess ? <WriterStatistics /> : <Studio onStatisticsOpen={() => setStatisticsAccess(true)} />;
       case 'studio-story':
         return <StudioStory storyId={route.storyId} />;
       default:
-        return <Home searchQuery={searchQuery} />;
+        return (
+          <Home
+            searchQuery={searchQuery}
+            activeTag={activeTag}
+            onTagSelect={handleTagSelect}
+            onTagClear={() => setActiveTag(null)}
+            onSearchClear={() => setSearchQuery('')}
+          />
+        );
     }
-  }, [route, searchQuery]);
+  }, [route, searchQuery, activeTag, statisticsAccess, handleTagSelect]);
 
   return (
     <div className="min-h-screen bg-cream-50">
@@ -73,6 +113,11 @@ function AppContent() {
         </div>
       )}
 
+      {persistenceError && (
+        <div role="alert" className="fixed bottom-20 left-1/2 z-[90] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-center text-xs font-medium text-red-800 shadow-lg">
+          {persistenceError}
+        </div>
+      )}
       <main className={showBottomNav ? 'pb-20' : ''}>{content}</main>
 
       {showBottomNav && <BottomNav />}

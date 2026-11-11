@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
-import { useApp } from '@/store';
+import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
-import { Cover, generateAICover } from '@/components/Cover';
+import { Cover } from '@/components/Cover';
+import { generateNovelCover } from '@/services/imagen';
 import { Modal } from '@/components/Modal';
 import { Toggle } from '@/components/Toggle';
 import { Badge } from '@/components/Badge';
-import { CATEGORIES, COVER_STYLES, FALLBACK_COVERS } from '@/mockData';
+import { CATEGORIES, COVER_STYLES } from '@/mockData';
 import type { Story, Category, AgeRating, StoryStatus } from '@/types';
 import {
   Plus,
@@ -17,21 +18,33 @@ import {
   X,
   ChevronRight,
   Wand2,
-  Loader2,
-  Image as ImageIcon,
   Globe2,
+  ChartNoAxesColumnIncreasing,
+  Bell,
+  MessageCircle,
+  Heart,
+  Crown,
+  Coins,
 } from 'lucide-react';
 
 function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export function Studio() {
+export function Studio({ onStatisticsOpen }: { onStatisticsOpen: () => void }) {
   const { state, saveStory, deleteStory } = useApp();
   const { navigate } = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [storyFilter, setStoryFilter] = useState<'all' | 'published' | 'draft'>('all');
+
+  const publishedCount = state.stories.filter((story) => story.status === 'published').length;
+  const draftCount = state.stories.length - publishedCount;
+  const visibleStories = state.stories.filter(
+    (story) => storyFilter === 'all' || story.status === storyFilter,
+  );
 
   const openNew = () => {
     setEditingStory(null);
@@ -48,7 +61,7 @@ export function Studio() {
     setShowForm(false);
     setEditingStory(null);
     if (story.status === 'published') {
-      navigate({ name: 'story', storyId: story.id });
+      navigate({ name: 'home' });
     }
   };
 
@@ -58,28 +71,92 @@ export function Studio() {
   };
 
   const togglePublished = (story: Story) => {
-    saveStory({ ...story, status: story.status === 'published' ? 'draft' : 'published' });
+    const nextStatus = story.status === 'published' ? 'draft' : 'published';
+    saveStory({ ...story, status: nextStatus });
+    if (nextStatus === 'published') navigate({ name: 'home' });
+  };
+
+  const handleOpenStatistics = () => {
+    onStatisticsOpen();
+    navigate({ name: 'studio-statistics' });
   };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-4">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-charcoal">พื้นที่นักเขียน</h1>
+          <h1 className="text-xl font-bold text-charcoal">แดชบอร์ดนักเขียน</h1>
           <p className="text-sm text-charcoal-muted">จัดการนิยายและตอนของคุณ</p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white px-4 py-2 rounded-full text-sm font-semibold transition shadow-md active:scale-95"
-        >
-          <Plus size={18} />
-          สร้างนิยาย
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowNotifications(true)}
+            aria-label={`การแจ้งเตือน ${state.writerNotifications.length} รายการ`}
+            className="relative flex h-10 w-10 items-center justify-center rounded-full border border-cream-200 bg-white text-charcoal transition hover:bg-cream-100"
+          >
+            <Bell size={18} />
+            {state.writerNotifications.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-terracotta-500 px-1 text-[10px] font-bold text-white">
+                {Math.min(state.writerNotifications.length, 99)}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenStatistics}
+            className="flex items-center gap-1.5 rounded-full border border-cream-200 bg-white px-3 py-2 text-xs font-semibold text-charcoal transition hover:bg-cream-100 sm:px-4 sm:text-sm"
+          >
+            <ChartNoAxesColumnIncreasing size={16} />
+            สถิติผลงาน
+          </button>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 rounded-full bg-terracotta-500 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-terracotta-600 active:scale-95 sm:px-4 sm:text-sm"
+          >
+            <Plus size={18} />
+            สร้างนิยาย
+          </button>
+        </div>
       </div>
 
-      {/* Story list */}
+      <section className="grid grid-cols-3 gap-2 mb-5" aria-label="สรุปผลงาน">
+        {[
+          { label: 'นิยายทั้งหมด', value: state.stories.length },
+          { label: 'เผยแพร่แล้ว', value: publishedCount },
+          { label: 'ฉบับร่าง', value: draftCount },
+        ].map((item) => (
+          <div key={item.label} className="bg-cream-100 rounded-xl px-3 py-3">
+            <p className="text-lg font-bold text-charcoal">{item.value}</p>
+            <p className="text-[11px] text-charcoal-muted">{item.label}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="flex items-center gap-2 mb-3" role="group" aria-label="กรองนิยาย">
+        {([
+          ['all', 'ทั้งหมด'],
+          ['published', 'เผยแพร่แล้ว'],
+          ['draft', 'ฉบับร่าง'],
+        ] as const).map(([filter, label]) => (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => setStoryFilter(filter)}
+            aria-pressed={storyFilter === filter}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+              storyFilter === filter
+                ? 'bg-charcoal text-white'
+                : 'bg-cream-100 text-charcoal-muted hover:bg-cream-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-3">
-        {state.stories.map((story) => (
+        {visibleStories.map((story) => (
           <div
             key={story.id}
             className="flex gap-3 bg-cream-100 rounded-2xl p-3 hover:shadow-md transition"
@@ -154,10 +231,14 @@ export function Studio() {
         ))}
       </div>
 
-      {state.stories.length === 0 && (
+      {visibleStories.length === 0 && (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <BookOpen size={48} className="text-cream-200 mb-4" />
-          <p className="text-charcoal-muted">ยังไม่มีนิยาย เริ่มสร้างเรื่องแรกของคุณ!</p>
+          <p className="text-charcoal-muted">
+            {state.stories.length === 0
+              ? 'ยังไม่มีนิยาย เริ่มสร้างเรื่องแรกของคุณ!'
+              : 'ไม่มีนิยายในสถานะนี้'}
+          </p>
         </div>
       )}
 
@@ -173,6 +254,50 @@ export function Studio() {
       )}
 
       {/* Delete confirmation */}
+      <Modal
+        open={showNotifications}
+        onClose={() => setShowNotifications(false)}
+        title="การแจ้งเตือนล่าสุด"
+        maxWidth="max-w-lg"
+      >
+        {state.writerNotifications.length === 0 ? (
+          <div className="py-8 text-center text-sm text-charcoal-muted">
+            ยังไม่มีการแจ้งเตือน
+          </div>
+        ) : (
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {state.writerNotifications.slice(0, 50).map((notification) => {
+              const story = state.stories.find((item) => item.id === notification.storyId);
+              const chapter = story?.chapters.find((item) => item.id === notification.chapterId);
+              const Icon =
+                notification.kind === 'comment'
+                  ? MessageCircle
+                  : notification.kind === 'like'
+                    ? Heart
+                    : notification.kind === 'vip'
+                      ? Crown
+                      : Coins;
+              return (
+                <article key={notification.id} className="flex gap-3 rounded-xl bg-cream-100 p-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-terracotta-600">
+                    <Icon size={17} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-charcoal">{notification.message}</p>
+                    <p className="mt-0.5 truncate text-xs text-charcoal-muted">
+                      {[story?.title, chapter?.title].filter(Boolean).join(' · ') || 'สมาชิก VIP'}
+                    </p>
+                    <time className="mt-1 block text-[10px] text-charcoal-muted">
+                      {new Date(notification.createdAt).toLocaleString('th-TH')}
+                    </time>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
+
       <Modal
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
@@ -226,14 +351,25 @@ export function StoryForm({
   );
   const [ageRating, setAgeRating] = useState<AgeRating>(story?.ageRating || 'ทุกวัย');
   const [tagsInput, setTagsInput] = useState(story?.tags.join(', ') || '');
+  const parsedTags = Array.from(
+    new Map(
+      tagsInput
+        .split(/[,\n]/)
+        .map((tag) => tag.trim().replace(/^#/, ''))
+        .filter(Boolean)
+        .map((tag) => [tag.toLocaleLowerCase('th-TH'), tag]),
+    ).values(),
+  );
   const [status, setStatus] = useState<StoryStatus>(story?.status || 'draft');
   const [isFree, setIsFree] = useState(story?.isFree || false);
-  const [coverColor, setCoverColor] = useState(story?.coverColor || '#E07A5F');
-  const [coverPattern, setCoverPattern] = useState(story?.coverPattern || 'stars');
+  const coverColor = story?.coverColor || '#E07A5F';
+  const coverPattern = story?.coverPattern || 'stars';
   const [coverImage, setCoverImage] = useState<string | undefined>(story?.coverImage);
   const [coverAiUrl, setCoverAiUrl] = useState<string | undefined>(story?.coverAiUrl);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [coverPrompt, setCoverPrompt] = useState(story?.coverPrompt || '');
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
   const [coverStyle, setCoverStyle] = useState<string>('anime');
   const [showAiStudio, setShowAiStudio] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -246,7 +382,7 @@ export function StoryForm({
     intro,
     category,
     ageRating,
-    tags: [],
+    tags: parsedTags,
     coverColor,
     coverPattern,
     coverImage,
@@ -260,43 +396,32 @@ export function StoryForm({
     createdAt: story?.createdAt || Date.now(),
   };
 
-  const handleAICover = () => {
-    const result = generateAICover(synopsis, category);
-    setCoverColor(result.color);
-    setCoverPattern(result.pattern);
-    setCoverImage(undefined);
-  };
-
   const handleGenerateAiCover = async () => {
-    setAiLoading(true);
     setAiError(null);
+    setAiStatus(null);
     const stylePreset = COVER_STYLES.find((s) => s.id === coverStyle);
     const styleSuffix = stylePreset?.promptSuffix || COVER_STYLES[0].promptSuffix;
-    const promptText = `${title || synopsis || 'novel cover'} ${styleSuffix}`;
-    const encoded = encodeURIComponent(promptText);
-    const baseSeed = Math.floor(Math.random() * 1000000);
-    const candidateUrls = [0, 1, 2].map(
-      (attempt) =>
-        `https://image.pollinations.ai/prompt/${encoded}?width=600&height=900&nologo=true&enhance=true&seed=${baseSeed + attempt}`,
-    );
-
-    for (const url of candidateUrls) {
-      const loaded = await loadImage(url, 25000);
-      if (loaded) {
-        setCoverAiUrl(url);
-        setCoverImage(undefined);
-        setAiLoading(false);
-        return;
-      }
+    const promptText = [
+      coverPrompt.trim(),
+      title.trim() && `Novel title: ${title.trim()}`,
+      synopsis.trim() && `Story concept: ${synopsis.trim()}`,
+      `Category: ${category}`,
+      styleSuffix,
+      'Create a polished vertical portrait illustrated novel book cover. Do not include text or lettering.',
+    ]
+      .filter(Boolean)
+      .join(', ');
+    setIsGeneratingCover(true);
+    try {
+      const imageUrl = await generateNovelCover(promptText);
+      setCoverAiUrl(imageUrl);
+      setCoverImage(undefined);
+      setAiStatus('สร้างภาพปกเรียบร้อยแล้ว');
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาดระหว่างสร้างภาพ กรุณาลองอีกครั้ง');
+    } finally {
+      setIsGeneratingCover(false);
     }
-
-    setAiError('สร้างภาพไม่สำเร็จในขณะนี้ ลองอีกครั้งหรือเลือกภาพตัวอย่างได้เลย');
-    setAiLoading(false);
-  };
-
-  const handlePickFallback = (url: string) => {
-    setCoverAiUrl(url);
-    setCoverImage(undefined);
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -320,14 +445,12 @@ export function StoryForm({
       intro: intro.trim(),
       category,
       ageRating,
-      tags: tagsInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
+      tags: parsedTags,
       coverColor,
       coverPattern,
       coverImage,
       coverAiUrl,
+      coverPrompt: coverPrompt.trim(),
       status,
       isFree,
       readCount: story?.readCount || 0,
@@ -345,11 +468,6 @@ export function StoryForm({
         {/* Cover preview + studio */}
         <div className="flex gap-4">
           <div className="w-24 h-36 rounded-xl overflow-hidden shadow-md shrink-0 relative">
-            {aiLoading && (
-              <div className="absolute inset-0 bg-cream-200 flex items-center justify-center z-10">
-                <Loader2 size={24} className="text-terracotta-500 animate-spin" />
-              </div>
-            )}
             <Cover story={previewStory} rounded="rounded-xl" />
           </div>
           <div className="flex-1 space-y-2">
@@ -379,46 +497,39 @@ export function StoryForm({
                     </button>
                   ))}
                 </div>
+                <label className="block text-[10px] font-semibold text-charcoal-muted" htmlFor="cover-prompt">
+                  รายละเอียดภาพที่ต้องการ
+                </label>
+                <textarea
+                  id="cover-prompt"
+                  value={coverPrompt}
+                  onChange={(event) => setCoverPrompt(event.target.value)}
+                  placeholder="เช่น ปราสาทลอยฟ้าท่ามกลางหมู่เมฆยามพลบค่ำ โทนสีเขียวมรกตและทอง"
+                  maxLength={1000}
+                  rows={3}
+                  className="w-full resize-y rounded-lg bg-white px-2.5 py-2 text-xs text-charcoal placeholder:text-charcoal-muted/70 focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+                />
                 <button
                   onClick={handleGenerateAiCover}
-                  disabled={aiLoading || !title.trim()}
+                  disabled={!title.trim() && !synopsis.trim() && !coverPrompt.trim()}
+                  aria-busy={isGeneratingCover}
                   className="w-full flex items-center justify-center gap-1.5 bg-terracotta-500 text-white py-2 rounded-lg text-xs font-bold transition hover:bg-terracotta-600 disabled:opacity-40 active:scale-95"
                 >
-                  {aiLoading ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Wand2 size={14} />
-                  )}
-                  สร้างภาพ
+                  <Wand2 size={14} />
+                  {isGeneratingCover ? 'กำลังสร้างภาพ...' : 'สร้างภาพ'}
                 </button>
+                {aiStatus && (
+                  <p className="text-[10px] leading-relaxed text-emerald-700" role="status">
+                    {aiStatus}
+                  </p>
+                )}
                 {aiError && (
                   <p className="text-[10px] leading-relaxed text-red-500" role="alert">
                     {aiError}
                   </p>
                 )}
-                <div className="pt-1">
-                  <p className="text-[10px] text-charcoal-muted mb-1.5">หรือเลือกจากตัวอย่าง</p>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {FALLBACK_COVERS.slice(0, 6).map((url, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handlePickFallback(url)}
-                        className="aspect-[2/3] rounded-md overflow-hidden border-2 border-transparent hover:border-terracotta-400 transition"
-                      >
-                        <img src={url} alt="" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
-            <button
-              onClick={handleAICover}
-              className="w-full flex items-center gap-2 bg-cream-200 text-charcoal px-3 py-2 rounded-xl text-xs font-medium hover:bg-cream-100 transition"
-            >
-              <ImageIcon size={14} />
-              สร้างลายปกอัตโนมัติ
-            </button>
             <button
               onClick={() => fileRef.current?.click()}
               className="w-full flex items-center gap-2 bg-cream-200 text-charcoal px-3 py-2 rounded-xl text-xs font-medium hover:bg-cream-100 transition"
@@ -521,14 +632,23 @@ export function StoryForm({
           </FormField>
         </div>
 
-        <FormField label="แท็ก (คั่นด้วยจุลภาค)">
-          <input
-            type="text"
+        <FormField label="แท็ก (คั่นด้วยจุลภาคหรือขึ้นบรรทัดใหม่)">
+          <textarea
+            rows={2}
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="BL, School, Drama"
+            placeholder="#โรแมนติก, #แฟนตาซี, #สุขนิยม"
             className="w-full px-3 py-2.5 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
           />
+          {parsedTags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {parsedTags.map((tag) => (
+                <span key={tag} className="rounded-full bg-terracotta-50 px-2.5 py-1 text-[11px] font-medium text-terracotta-700">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
         </FormField>
 
         <div className="flex items-center justify-between bg-cream-100 rounded-xl p-3">
@@ -566,7 +686,13 @@ export function StoryForm({
             disabled={!title.trim()}
             className="flex-1 py-3 rounded-xl bg-terracotta-500 text-white text-sm font-bold hover:bg-terracotta-600 transition disabled:opacity-40 active:scale-95"
           >
-            {story ? 'บันทึก' : 'สร้างนิยาย'}
+            {story
+              ? status === 'published' && story.status !== 'published'
+                ? 'บันทึกและเผยแพร่'
+                : 'บันทึก'
+              : status === 'published'
+                ? 'สร้างและเผยแพร่'
+                : 'สร้างนิยาย'}
           </button>
         </div>
       </div>
@@ -581,23 +707,4 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
       {children}
     </div>
   );
-}
-
-function loadImage(url: string, timeoutMs: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    const timer = window.setTimeout(() => {
-      image.src = '';
-      resolve(false);
-    }, timeoutMs);
-    image.onload = () => {
-      window.clearTimeout(timer);
-      resolve(image.naturalWidth > 0 && image.naturalHeight > 0);
-    };
-    image.onerror = () => {
-      window.clearTimeout(timer);
-      resolve(false);
-    };
-    image.src = url;
-  });
 }

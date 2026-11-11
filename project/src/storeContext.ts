@@ -10,8 +10,16 @@ import type {
   UserProfile,
 } from './types';
 
+export interface AuthUser {
+  id: string;
+  email?: string;
+}
+
 export interface AppContextType {
   state: AppState;
+  authUser: AuthUser | null;
+  authLoading: boolean;
+  isWriter: boolean;
   toggleBookmark: (storyId: string) => void;
   toggleLike: (storyId: string) => void;
   isBookmarked: (storyId: string) => boolean;
@@ -20,10 +28,10 @@ export interface AppContextType {
   recordChapterView: (storyId: string, chapterId: string) => void;
   resetStatistics: () => void;
   getProgress: (storyId: string) => ReadingProgress | undefined;
-  addComment: (storyId: string, chapterId: string, text: string, sticker?: Comment['sticker']) => void;
+  addComment: (storyId: string, chapterId: string, text: string, sticker?: Comment['sticker']) => Promise<void>;
   deleteComment: (commentId: string) => void;
   getComments: (chapterId: string) => Comment[];
-  updateProfile: (profile: UserProfile) => void;
+  updateProfile: (profile: UserProfile) => Promise<void>;
   addDonation: (
     storyId: string,
     chapterId: string,
@@ -35,13 +43,15 @@ export interface AppContextType {
       paymentMethod: PaymentMethod;
       message: string;
     },
-  ) => void;
+  ) => Promise<void>;
   getTips: (chapterId: string) => Tip[];
-  setVIP: (vip: boolean, storyId?: string) => void;
   setAutoRenew: (val: boolean) => void;
   setReadingTheme: (theme: AppState['readingTheme']) => void;
   setFontFamily: (font: AppState['fontFamily']) => void;
   setFontSize: (size: number) => void;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signOut: () => Promise<void>;
   saveStory: (story: Story) => void;
   deleteStory: (storyId: string) => void;
   getStory: (storyId: string) => Story | undefined;

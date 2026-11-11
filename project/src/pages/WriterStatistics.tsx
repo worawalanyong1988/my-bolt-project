@@ -26,7 +26,7 @@ export function WriterStatistics() {
     const publishedStories = state.stories.filter((story) => story.status === 'published');
 
     const perStory = publishedStories.map((story) => {
-      const storyTips = state.tips.filter((tip) => tip.storyId === story.id);
+      const storyTips = state.tips.filter((tip) => tip.storyId === story.id && tip.paymentStatus === 'paid');
       const chapters = story.chapters
         .filter((chapter) => chapter.status === 'published')
         .sort((a, b) => a.number - b.number)
@@ -91,6 +91,9 @@ export function WriterStatistics() {
           </article>
         ))}
       </section>
+      <p className="mb-4 text-[11px] leading-relaxed text-charcoal-muted">
+        ยอดโดเนทนับเฉพาะรายการที่ผ่านการยืนยันจากระบบชำระเงินจริง รายการทดลองจะไม่รวมในรายได้
+      </p>
 
       <div className="mb-6 flex justify-end">
         <button
@@ -99,7 +102,7 @@ export function WriterStatistics() {
           className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
         >
           <RotateCcw size={15} />
-          รีเซ็ตข้อมูลทดสอบเป็น 0
+          รีเซ็ตยอดอ่านทดสอบ
         </button>
       </div>
 
@@ -196,10 +199,10 @@ export function WriterStatistics() {
         <div className="text-center">
           <TriangleAlert size={36} className="mx-auto text-red-500" />
           <p className="mt-3 text-sm font-semibold text-charcoal">
-            ต้องการตั้งยอดอ่าน ยอดซื้อ และยอดโดเนทกลับเป็น 0 หรือไม่?
+            ต้องการรีเซ็ตยอดเข้าชมของเรื่องและตอนเป็น 0 หรือไม่?
           </p>
           <p className="mt-2 text-xs leading-relaxed text-charcoal-muted">
-            การดำเนินการนี้จะรีเซ็ตยอดอ่าน ยอดถูกใจ ยอดเก็บ ยอดซื้อ และยอดโดเนท พร้อมลบคอมเมนต์ ประวัติการซื้อ และความคืบหน้าการอ่านในเบราว์เซอร์นี้ ไม่สามารถย้อนกลับได้
+            การดำเนินการนี้จะรีเซ็ตเฉพาะยอดเข้าชม ไม่ลบคอมเมนต์ โดเนทที่ยืนยันแล้ว ชั้นหนังสือ หรือข้อมูลบัญชี
           </p>
           <div className="mt-5 flex gap-2">
             <button
@@ -217,7 +220,7 @@ export function WriterStatistics() {
               }}
               className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
             >
-              รีเซ็ตข้อมูล
+              รีเซ็ตยอดอ่าน
             </button>
           </div>
         </div>

@@ -101,6 +101,7 @@ export interface Tip {
   stickerId?: string;
   stickerEmoji?: string;
   paymentMethod?: PaymentMethod;
+  paymentStatus?: 'simulated' | 'paid';
   createdAt: number;
 }
 

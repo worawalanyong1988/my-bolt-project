@@ -5,7 +5,7 @@ import { Badge } from '@/components/Badge';
 import { Bookmark, Play, Library } from 'lucide-react';
 
 export function Bookshelf() {
-  const { state, getStory, getProgress } = useApp();
+  const { state, getStory, getProgress, authUser } = useApp();
   const { navigate } = useRouter();
 
   const bookmarked = state.bookmarks
@@ -25,10 +25,17 @@ export function Bookshelf() {
       {bookmarked.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <Bookmark size={48} className="text-cream-200 mb-4" />
-          <p className="text-charcoal-muted">ยังไม่มีนิยายในชั้นหนังสือ</p>
-          <p className="text-sm text-charcoal-muted mt-1">
-            กด "เพิ่มเข้าชั้น" จากหน้านิยายเพื่อบันทึกไว้อ่านต่อ
+          <p className="text-charcoal-muted">
+            {authUser ? 'ยังไม่มีนิยายในชั้นหนังสือ' : 'เข้าสู่ระบบเพื่อซิงก์ชั้นหนังสือข้ามอุปกรณ์'}
           </p>
+          <p className="text-sm text-charcoal-muted mt-1">
+            {authUser ? 'กด "เพิ่มเข้าชั้น" จากหน้านิยายเพื่อบันทึกไว้อ่านต่อ' : 'บัญชีผู้ใช้จำเป็นสำหรับบันทึกนิยายและประวัติการอ่าน'}
+          </p>
+          {!authUser && (
+            <button type="button" onClick={() => navigate({ name: 'profile' })} className="mt-4 rounded-full bg-terracotta-500 px-4 py-2 text-xs font-bold text-white">
+              ไปหน้าเข้าสู่ระบบ
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

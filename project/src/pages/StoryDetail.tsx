@@ -28,10 +28,9 @@ interface StoryDetailProps {
 }
 
 export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
-  const { getStory, isBookmarked, toggleBookmark, toggleLike, state, setVIP, recordStoryView } = useApp();
+  const { getStory, isBookmarked, toggleBookmark, toggleLike, state, recordStoryView, authUser } = useApp();
   const { navigate, back } = useRouter();
   const [showPaywall, setShowPaywall] = useState(false);
-  const [pendingVipChapterId, setPendingVipChapterId] = useState<string | null>(null);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
@@ -103,20 +102,10 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
 
   const handleChapterClick = (chapterId: string, isVIP: boolean) => {
     if (isVIP && !state.isVIP) {
-      setPendingVipChapterId(chapterId);
       setShowPaywall(true);
       return;
     }
     navigate({ name: 'reader', storyId: story.id, chapterId });
-  };
-
-  const handleSubscribe = () => {
-    setVIP(true, story.id);
-    setShowPaywall(false);
-    if (pendingVipChapterId) {
-      navigate({ name: 'reader', storyId: story.id, chapterId: pendingVipChapterId });
-      setPendingVipChapterId(null);
-    }
   };
 
   const firstChapter = publishedChapters[0];
@@ -190,7 +179,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
           <Stat icon={<Eye size={14} />} label="อ่าน" value={formatCount(story.readCount)} />
           <button
             type="button"
-            onClick={() => toggleLike(story.id)}
+            onClick={() => authUser ? toggleLike(story.id) : navigate({ name: 'profile' })}
             aria-pressed={state.likedStories.includes(story.id)}
             className={`flex flex-col items-center text-center transition ${
               state.likedStories.includes(story.id) ? 'text-rose-600' : 'text-charcoal'
@@ -213,7 +202,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
         {/* Action buttons */}
         <div className="mt-4 flex gap-2">
           <button
-            onClick={() => toggleBookmark(story.id)}
+            onClick={() => authUser ? toggleBookmark(story.id) : navigate({ name: 'profile' })}
             className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm transition active:scale-95 ${
               bookmarked
                 ? 'bg-terracotta-100 text-terracotta-600 border border-terracotta-200'
@@ -394,10 +383,11 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
           </div>
 
           <button
-            onClick={handleSubscribe}
-            className="mt-5 w-full bg-terracotta-500 hover:bg-terracotta-600 text-white py-3 rounded-2xl font-bold text-sm transition shadow-lg active:scale-95"
+            type="button"
+            disabled
+            className="mt-5 w-full rounded-2xl bg-cream-200 py-3 text-sm font-bold text-charcoal-muted"
           >
-            สมัครสมาชิก VIP — 59 บาท/เดือน
+            ยังไม่เปิดระบบสมัคร VIP และชำระเงินจริง
           </button>
           <button
             onClick={() => setShowPaywall(false)}

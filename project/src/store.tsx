@@ -1,24 +1,16 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from 'react';
-import type {
-  AppState,
-  Story,
-  Chapter,
-  Comment,
-  PaymentMethod,
-  UserProfile,
-} from './types';
-import { getInitialState, AVATAR_COLORS } from './mockData';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import type { User } from '@supabase/supabase-js';
+import type { AppState, Chapter, Comment, PaymentMethod, Story, UserProfile } from './types';
 import { AppContext, type AppContextType } from './storeContext';
+import { getEmptyAppState, loadRemoteState, saveChapterRemote, saveProfileRemote, saveStoryRemote } from './services/supabaseData';
+import { supabaseClient, supabaseConfigError } from './services/supabaseClient';
 
-const STORAGE_KEY = 'aksara-app-state-v1';
-const STATS_RESET_KEY = 'aksara-stats-reset-v1';
 const VIEW_SESSION_PREFIX = 'aksara-view-session-v1:';
 const viewsClaimedInMemory = new Set<string>();
+
+function uid(): string {
+  return crypto.randomUUID();
+}
 
 function claimSessionView(key: string): boolean {
   if (viewsClaimedInMemory.has(key)) return false;
@@ -40,154 +32,273 @@ function clearSessionViews(): void {
   try {
     for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = sessionStorage.key(index);
-      if (key?.startsWith(VIEW_SESSION_PREFIX)) sessionStorage.removeItem(key);
+      if (key?.startsWith(VIEW_SESSION_PREFIX) || key === 'aksara-view-session-id-v1') {
+        sessionStorage.removeItem(key);
+      }
     }
   } catch (error) {
-    console.warn('Unable to clear session view history.', error);
+    console.warn('Unable to clear this session view history.', error);
   }
 }
 
-function resetStoredStatistics(state: AppState): AppState {
-  return {
-    ...state,
-    stories: state.stories.map((story) => ({
-      ...story,
-      readCount: 0,
-      likeCount: 0,
-      bookmarkCount: 0,
-      chapters: story.chapters.map((chapter) => ({ ...chapter, readCount: 0 })),
-    })),
-    bookmarks: [],
-    likedStories: [],
-    comments: [],
-    tips: [],
-    progress: [],
-    vipSubscriptions: [],
-    writerNotifications: [],
-  };
-}
-
-function loadState(): AppState {
+function getViewSessionId(): string {
+  const key = 'aksara-view-session-id-v1';
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const initial = getInitialState();
-    let loadedState = initial;
-    if (raw) {
-      const parsed = JSON.parse(raw) as AppState;
-      // Ensure all fields exist (forward compat)
-      const stories = (parsed.stories?.length ? parsed.stories : initial.stories).map((s) => ({
-        ...initial.stories[0],
-        ...s,
-        intro: s.intro || '',
-        likeCount: s.likeCount || 0,
-        bookmarkCount: s.bookmarkCount || 0,
-        readCount: typeof s.readCount === 'number' ? s.readCount : 0,
-        coverAiUrl: s.coverAiUrl,
-        chapters: (s.chapters || []).map((chapter) => ({
-          ...chapter,
-          readCount: typeof chapter.readCount === 'number' ? chapter.readCount : 0,
-        })),
-      }));
-      loadedState = {
-        ...initial,
-        ...parsed,
-        bookmarks: parsed.bookmarks || [],
-        likedStories: parsed.likedStories || [],
-        comments: parsed.comments || [],
-        vipSubscriptions: parsed.vipSubscriptions || [],
-        writerNotifications: parsed.writerNotifications || [],
-        tips: (parsed.tips || []).map((tip) => ({
-          ...tip,
-          storyId:
-            tip.storyId ||
-            stories.find((story) => story.chapters.some((chapter) => chapter.id === tip.chapterId))?.id,
-        })),
-        profile: { ...initial.profile, ...parsed.profile },
-        stories,
-      };
-    }
-    if (localStorage.getItem(STATS_RESET_KEY) !== '1') {
-      loadedState = resetStoredStatistics(loadedState);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(loadedState));
-      localStorage.setItem(STATS_RESET_KEY, '1');
-    }
-    return loadedState;
+    const stored = sessionStorage.getItem(key);
+    if (stored) return stored;
+    const generated = crypto.randomUUID();
+    sessionStorage.setItem(key, generated);
+    return generated;
   } catch (error) {
-    console.error('Unable to load saved application state; using initial data.', error);
-  }
-  return getInitialState();
-}
-
-function saveState(state: AppState): string | null {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return null;
-  } catch (error) {
-    console.error('Unable to persist application state.', error);
-    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      return 'พื้นที่จัดเก็บในอุปกรณ์เต็ม ข้อมูลล่าสุดอาจยังไม่ถูกบันทึก';
-    }
-    return 'บันทึกข้อมูลในอุปกรณ์ไม่สำเร็จ กรุณาตรวจสอบพื้นที่จัดเก็บและการตั้งค่าเบราว์เซอร์';
+    console.warn('Unable to persist the view session identifier.', error);
+    return crypto.randomUUID();
   }
 }
 
-function uid(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล';
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(loadState);
-  const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const [state, setState] = useState<AppState>(getEmptyAppState);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isWriter, setIsWriter] = useState(false);
+  const [persistenceError, setPersistenceError] = useState<string | null>(supabaseConfigError);
+  const userRef = useRef<User | null>(null);
+  const refreshRef = useRef<(user: User | null) => Promise<void>>(async () => undefined);
+
+  const refreshRemote = useCallback(async (user: User | null) => {
+    if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
+    if (userRef.current?.id !== user?.id) return;
+    const remote = await loadRemoteState(user);
+    if (userRef.current?.id !== user?.id) return;
+    userRef.current = user;
+    setAuthUser(user);
+    setState(remote.state);
+    setIsWriter(remote.isWriter);
+    setPersistenceError(null);
+  }, []);
 
   useEffect(() => {
-    setPersistenceError(saveState(state));
-  }, [state]);
+    refreshRef.current = refreshRemote;
+  }, [refreshRemote]);
+
+  useEffect(() => {
+    const client = supabaseClient;
+    if (!client) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let active = true;
+    const initialize = async () => {
+      try {
+        const { data, error } = await client.auth.getSession();
+        if (error) throw error;
+        if (active) {
+          userRef.current = data.session?.user ?? null;
+          await refreshRemote(userRef.current);
+        }
+      } catch (error) {
+        if (active) setPersistenceError(`โหลดข้อมูลจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+      } finally {
+        if (active) setAuthLoading(false);
+      }
+    };
+    void initialize();
+
+    const { data: authListener } = client.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      if (userRef.current?.id !== user?.id) {
+        setState(getEmptyAppState());
+        setIsWriter(false);
+      }
+      userRef.current = user;
+      setAuthUser(user);
+      setAuthLoading(true);
+      window.setTimeout(() => {
+        if (!active) return;
+        void refreshRemote(user)
+          .catch((error: unknown) => setPersistenceError(`โหลดข้อมูลจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`))
+          .finally(() => {
+            if (active) setAuthLoading(false);
+          });
+      }, 0);
+    });
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [refreshRemote]);
+
+  useEffect(() => {
+    const client = supabaseClient;
+    if (!client || authLoading || supabaseConfigError) return;
+    let timeout: number | undefined;
+    const channel = client
+      .channel(`aksara-data-${authUser?.id ?? 'public'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stories' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์นิยายจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chapters' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์ตอนนิยายจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chapter_contents' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์เนื้อหาตอนจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์คอมเมนต์จาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tips' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์โดเนทจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_bookmarks' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์ชั้นหนังสือจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_likes' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์รายการถูกใจจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reading_progress' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์ประวัติการอ่านจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์โปรไฟล์จาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'writer_notifications' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์การแจ้งเตือนจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setPersistenceError(`เชื่อมต่อ Supabase Realtime ไม่สำเร็จ (${status})`);
+        }
+      });
+
+    return () => {
+      window.clearTimeout(timeout);
+      void client.removeChannel(channel);
+    };
+  }, [authLoading, authUser?.id]);
+
+  const persist = useCallback(async (operation: () => Promise<unknown>) => {
+    try {
+      await operation();
+      setPersistenceError(null);
+    } catch (error) {
+      let message = `บันทึกข้อมูลไปยัง Supabase ไม่สำเร็จ: ${errorMessage(error)}`;
+      try {
+        await refreshRef.current(userRef.current);
+      } catch (refreshError) {
+        message = `บันทึก/โหลดข้อมูลจาก Supabase ไม่สำเร็จ: ${errorMessage(refreshError)}`;
+      }
+      setPersistenceError(message);
+    }
+  }, []);
 
   const toggleBookmark = useCallback((storyId: string) => {
-    setState((s) => {
-      const isBookmarked = s.bookmarks.includes(storyId);
-      return {
-        ...s,
-        bookmarks: isBookmarked
-          ? s.bookmarks.filter((id) => id !== storyId)
-          : [...s.bookmarks, storyId],
-        stories: s.stories.map((story) =>
-          story.id === storyId
-            ? { ...story, bookmarkCount: Math.max(0, story.bookmarkCount + (isBookmarked ? -1 : 1)) }
-            : story,
-        ),
-      };
+    const user = userRef.current;
+    if (!user) {
+      setPersistenceError('กรุณาเข้าสู่ระบบก่อนบันทึกนิยายเข้าชั้นหนังสือ');
+      return;
+    }
+    const wasBookmarked = state.bookmarks.includes(storyId);
+    setState((current) => ({
+      ...current,
+      bookmarks: wasBookmarked
+        ? current.bookmarks.filter((id) => id !== storyId)
+        : [...current.bookmarks, storyId],
+      stories: current.stories.map((story) =>
+        story.id === storyId
+          ? { ...story, bookmarkCount: Math.max(0, story.bookmarkCount + (wasBookmarked ? -1 : 1)) }
+          : story,
+      ),
+    }));
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = wasBookmarked
+        ? await supabaseClient.from('user_bookmarks').delete().eq('user_id', user.id).eq('story_id', storyId)
+        : await supabaseClient.from('user_bookmarks').insert({ user_id: user.id, story_id: storyId });
+      if (result.error) throw result.error;
     });
-  }, []);
+  }, [persist, state.bookmarks]);
 
   const toggleLike = useCallback((storyId: string) => {
-    setState((s) => {
-      const isLiked = s.likedStories.includes(storyId);
-      return {
-        ...s,
-        likedStories: isLiked
-          ? s.likedStories.filter((id) => id !== storyId)
-          : [...s.likedStories, storyId],
-        stories: s.stories.map((story) =>
-          story.id === storyId
-            ? { ...story, likeCount: Math.max(0, story.likeCount + (isLiked ? -1 : 1)) }
-            : story,
-        ),
-        writerNotifications: isLiked
-          ? s.writerNotifications
-          : [
-              {
-                id: uid(),
-                kind: 'like' as const,
-                storyId,
-                message: `${s.profile.displayName.trim() || 'นักอ่าน'} กดถูกใจนิยาย`,
-                createdAt: Date.now(),
-              },
-              ...s.writerNotifications,
-            ].slice(0, 100),
-      };
+    const user = userRef.current;
+    if (!user) {
+      setPersistenceError('กรุณาเข้าสู่ระบบก่อนกดถูกใจ');
+      return;
+    }
+    const wasLiked = state.likedStories.includes(storyId);
+    setState((current) => ({
+      ...current,
+      likedStories: wasLiked
+        ? current.likedStories.filter((id) => id !== storyId)
+        : [...current.likedStories, storyId],
+      stories: current.stories.map((story) =>
+        story.id === storyId
+          ? { ...story, likeCount: Math.max(0, story.likeCount + (wasLiked ? -1 : 1)) }
+          : story,
+      ),
+    }));
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = wasLiked
+        ? await supabaseClient.from('user_likes').delete().eq('user_id', user.id).eq('story_id', storyId)
+        : await supabaseClient.from('user_likes').insert({ user_id: user.id, story_id: storyId });
+      if (result.error) throw result.error;
     });
-  }, []);
+  }, [persist, state.likedStories]);
 
   const isBookmarked = useCallback(
     (storyId: string) => state.bookmarks.includes(storyId),
@@ -195,138 +306,126 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateProgress = useCallback((storyId: string, chapterId: string, percent: number) => {
-    setState((s) => {
-      const existing = s.progress.find((p) => p.storyId === storyId);
-      if (existing) {
-        return {
-          ...s,
-          progress: s.progress.map((p) =>
-            p.storyId === storyId
-              ? { ...p, chapterId, percent, updatedAt: Date.now() }
-              : p,
-          ),
-        };
-      }
-      return {
-        ...s,
-        progress: [...s.progress, { storyId, chapterId, percent, updatedAt: Date.now() }],
-      };
-    });
-  }, []);
+    const user = userRef.current;
+    const client = supabaseClient;
+    if (!user) return;
+    const updatedAt = Date.now();
+    setState((current) => ({
+      ...current,
+      progress: [
+        ...current.progress.filter((item) => item.storyId !== storyId),
+        { storyId, chapterId, percent, updatedAt },
+      ],
+    }));
+    if (user && client) {
+      void persist(async () => {
+        const result = await client
+          .from('reading_progress')
+          .upsert({ user_id: user.id, story_id: storyId, chapter_id: chapterId, percent, updated_at: updatedAt });
+        if (result.error) throw result.error;
+      });
+    }
+  }, [persist]);
 
   const recordStoryView = useCallback((storyId: string) => {
     if (!claimSessionView(`${VIEW_SESSION_PREFIX}story:${storyId}`)) return;
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((story) =>
-        story.id === storyId ? { ...story, readCount: story.readCount + 1 } : story,
-      ),
-    }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.rpc('record_story_view', {
+        p_story_id: storyId,
+        p_session_id: getViewSessionId(),
+      });
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const recordChapterView = useCallback((storyId: string, chapterId: string) => {
     if (!claimSessionView(`${VIEW_SESSION_PREFIX}chapter:${storyId}:${chapterId}`)) return;
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((story) =>
-        story.id === storyId
-          ? {
-              ...story,
-              chapters: story.chapters.map((chapter) =>
-                chapter.id === chapterId
-                  ? { ...chapter, readCount: chapter.readCount + 1 }
-                  : chapter,
-              ),
-            }
-          : story,
-      ),
-    }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.rpc('record_chapter_view', {
+        p_story_id: storyId,
+        p_chapter_id: chapterId,
+        p_session_id: getViewSessionId(),
+      });
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const resetStatistics = useCallback(() => {
     clearSessionViews();
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((story) => ({
-        ...story,
-        readCount: 0,
-        likeCount: 0,
-        bookmarkCount: 0,
-        chapters: story.chapters.map((chapter) => ({ ...chapter, readCount: 0 })),
-      })),
-      bookmarks: [],
-      likedStories: [],
-      comments: [],
-      tips: [],
-      progress: [],
-      vipSubscriptions: [],
-      writerNotifications: [],
-    }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.rpc('reset_aksara_statistics');
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const getProgress = useCallback(
-    (storyId: string) => state.progress.find((p) => p.storyId === storyId),
+    (storyId: string) => state.progress.find((progress) => progress.storyId === storyId),
     [state.progress],
   );
 
-  const addComment = useCallback((
+  const addComment = useCallback(async (
     storyId: string,
     chapterId: string,
     text: string,
     sticker?: Comment['sticker'],
   ) => {
-    setState((s) => ({
-      ...s,
-      comments: [
-        ...s.comments,
-        {
-          id: uid(),
-          chapterId,
-          author: s.profile.displayName.trim() || 'คุณ',
-          avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-          avatarUrl: s.profile.avatarUrl,
-          isVIP: s.isVIP,
-          isOwn: true,
-          text,
-          isSticker: !text.trim(),
-          sticker,
-          createdAt: Date.now(),
-        },
-      ],
-      writerNotifications: [
-        {
-          id: uid(),
-          kind: 'comment' as const,
-          storyId,
-          chapterId,
-          message: `${s.profile.displayName.trim() || 'นักอ่าน'} แสดงความคิดเห็น`,
-          createdAt: Date.now(),
-        },
-        ...s.writerNotifications,
-      ].slice(0, 100),
-    }));
+    const user = userRef.current;
+    try {
+      if (!supabaseClient || !user) throw new Error('กรุณาเข้าสู่ระบบก่อนแสดงความคิดเห็น');
+      const result = await supabaseClient.rpc('create_aksara_comment', {
+        p_id: uid(),
+        p_story_id: storyId,
+        p_chapter_id: chapterId,
+        p_text: text,
+        p_is_sticker: !text.trim(),
+        p_sticker: sticker ?? null,
+      });
+      if (result.error) throw result.error;
+      await refreshRef.current(user);
+      setPersistenceError(null);
+    } catch (error) {
+      setPersistenceError(`ส่งความคิดเห็นไปยัง Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+      throw error;
+    }
   }, []);
 
   const deleteComment = useCallback((commentId: string) => {
-    setState((s) => ({
-      ...s,
-      comments: s.comments.filter((c) => c.id !== commentId),
-    }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.from('comments').delete().eq('id', commentId);
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const getComments = useCallback(
     (chapterId: string) =>
-      state.comments
-        .filter((c) => c.chapterId === chapterId)
-        .sort((a, b) => b.createdAt - a.createdAt),
+      state.comments.filter((comment) => comment.chapterId === chapterId).sort((a, b) => b.createdAt - a.createdAt),
     [state.comments],
   );
 
-  const updateProfile = useCallback((profile: UserProfile) => {
-    setState((s) => ({ ...s, profile }));
+  const updateProfile = useCallback(async (profile: UserProfile) => {
+    const user = userRef.current;
+    if (!user) {
+      throw new Error('กรุณาเข้าสู่ระบบก่อนบันทึกโปรไฟล์');
+    }
+    try {
+      await saveProfileRemote(user.id, profile);
+      setState((current) => ({ ...current, profile }));
+      setPersistenceError(null);
+    } catch (error) {
+      setPersistenceError(`บันทึกโปรไฟล์ใน Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+      throw error;
+    }
   }, []);
 
-  const addDonation = useCallback((
+  const addDonation = useCallback(async (
     storyId: string,
     chapterId: string,
     donation: {
@@ -338,199 +437,208 @@ export function AppProvider({ children }: { children: ReactNode }) {
       message: string;
     },
   ) => {
-    setState((s) => {
-      const createdAt = Date.now();
-      const donor = s.profile.displayName.trim() || 'คุณ';
-      const { stickerId, stickerEmoji, label, amount, paymentMethod, message } = donation;
-      return {
-        ...s,
-        tips: [
-          ...s.tips,
-          {
-            id: uid(),
-            storyId,
-            chapterId,
-            amount,
-            label,
-            donor,
-            stickerId,
-            stickerEmoji,
-            paymentMethod,
-            createdAt,
-          },
-        ],
-        writerNotifications: [
-          {
-            id: uid(),
-            kind: 'donation' as const,
-            storyId,
-            chapterId,
-            message: `${donor} ส่ง ${label} มูลค่า ฿${amount.toLocaleString('th-TH')}`,
-            createdAt,
-          },
-          ...s.writerNotifications,
-        ].slice(0, 100),
-        comments: [
-          ...s.comments,
-          {
-            id: uid(),
-            chapterId,
-            author: donor,
-            avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-            avatarUrl: s.profile.avatarUrl,
-            isVIP: s.isVIP,
-            isOwn: true,
-            text: message.trim(),
-            isSticker: false,
-            donation: { stickerId, stickerEmoji, label, amount, paymentMethod },
-            createdAt,
-          },
-        ],
-      };
+    const user = userRef.current;
+    if (!supabaseClient || !user) throw new Error('กรุณาเข้าสู่ระบบก่อนส่งสติกเกอร์โดเนท');
+    const result = await supabaseClient.rpc('create_tip_records', {
+      p_id: uid(),
+      p_story_id: storyId,
+      p_chapter_id: chapterId,
+      p_amount: donation.amount,
+      p_label: donation.label,
+      p_sticker_id: donation.stickerId,
+      p_sticker_emoji: donation.stickerEmoji,
+      p_payment_method: donation.paymentMethod,
+      p_message: donation.message,
+      p_comment_id: uid(),
     });
+    if (result.error) {
+      setPersistenceError(`บันทึกโดเนทใน Supabase ไม่สำเร็จ: ${errorMessage(result.error)}`);
+      throw result.error;
+    }
+    await refreshRef.current(user);
   }, []);
 
   const getTips = useCallback(
-    (chapterId: string) => state.tips.filter((t) => t.chapterId === chapterId),
+    (chapterId: string) => state.tips.filter((tip) => tip.chapterId === chapterId),
     [state.tips],
   );
 
-  const setVIP = useCallback((vip: boolean, storyId?: string) => {
-    setState((s) => {
-      if (s.isVIP === vip) return s;
-      const createdAt = Date.now();
-      return {
-        ...s,
-        isVIP: vip,
-        vipSubscriptions: vip
-          ? [{ id: uid(), storyId, createdAt }, ...s.vipSubscriptions]
-          : s.vipSubscriptions,
-        writerNotifications: vip
-          ? [
-              {
-                id: uid(),
-                kind: 'vip' as const,
-                storyId,
-                message: `${s.profile.displayName.trim() || 'นักอ่าน'} สมัครสมาชิก VIP รายเดือน`,
-                createdAt,
-              },
-              ...s.writerNotifications,
-            ].slice(0, 100)
-          : s.writerNotifications,
-      };
-    });
+  const updateReaderSetting = useCallback(async (
+    updates: Partial<Pick<AppState, 'readingTheme' | 'fontFamily' | 'fontSize' | 'autoRenew'>>,
+  ) => {
+    const user = userRef.current;
+    if (!user || !supabaseClient) return;
+    const result = await supabaseClient.from('profiles').update({
+      ...(updates.readingTheme !== undefined && { reading_theme: updates.readingTheme }),
+      ...(updates.fontFamily !== undefined && { font_family: updates.fontFamily }),
+      ...(updates.fontSize !== undefined && { font_size: updates.fontSize }),
+      ...(updates.autoRenew !== undefined && { auto_renew: updates.autoRenew }),
+      updated_at: new Date().toISOString(),
+    }).eq('id', user.id);
+    if (result.error) throw result.error;
   }, []);
 
-  const setAutoRenew = useCallback((val: boolean) => {
-    setState((s) => ({ ...s, autoRenew: val }));
-  }, []);
+  const setAutoRenew = useCallback((value: boolean) => {
+    setState((current) => ({ ...current, autoRenew: value }));
+    void persist(() => updateReaderSetting({ autoRenew: value }));
+  }, [persist, updateReaderSetting]);
 
-  const setReadingTheme = useCallback((theme: AppState['readingTheme']) => {
-    setState((s) => ({ ...s, readingTheme: theme }));
-  }, []);
+  const setReadingTheme = useCallback((readingTheme: AppState['readingTheme']) => {
+    setState((current) => ({ ...current, readingTheme }));
+    void persist(() => updateReaderSetting({ readingTheme }));
+  }, [persist, updateReaderSetting]);
 
-  const setFontFamily = useCallback((font: AppState['fontFamily']) => {
-    setState((s) => ({ ...s, fontFamily: font }));
-  }, []);
+  const setFontFamily = useCallback((fontFamily: AppState['fontFamily']) => {
+    setState((current) => ({ ...current, fontFamily }));
+    void persist(() => updateReaderSetting({ fontFamily }));
+  }, [persist, updateReaderSetting]);
 
-  const setFontSize = useCallback((size: number) => {
-    setState((s) => ({ ...s, fontSize: Math.max(14, Math.min(28, size)) }));
-  }, []);
+  const setFontSize = useCallback((fontSize: number) => {
+    const boundedSize = Math.max(14, Math.min(28, fontSize));
+    setState((current) => ({ ...current, fontSize: boundedSize }));
+    void persist(() => updateReaderSetting({ fontSize: boundedSize }));
+  }, [persist, updateReaderSetting]);
 
   const saveStory = useCallback((story: Story) => {
-    setState((s) => {
-      const exists = s.stories.find((st) => st.id === story.id);
-      const savedStory = { ...story, updatedAt: Date.now() };
-      if (exists) {
-        return { ...s, stories: s.stories.map((st) => (st.id === story.id ? savedStory : st)) };
-      }
-      return { ...s, stories: [savedStory, ...s.stories] };
+    const savedStory = { ...story, updatedAt: Date.now() };
+    setState((current) => ({
+      ...current,
+      stories: current.stories.some((item) => item.id === story.id)
+        ? current.stories.map((item) => item.id === story.id ? savedStory : item)
+        : [savedStory, ...current.stories],
+    }));
+    const user = userRef.current;
+    void persist(async () => {
+      if (!user) throw new Error('กรุณาเข้าสู่ระบบด้วยบัญชีนักเขียนก่อนบันทึกนิยาย');
+      await saveStoryRemote(savedStory, user.id);
+      await refreshRef.current(user);
     });
-  }, []);
+  }, [persist]);
 
   const deleteStory = useCallback((storyId: string) => {
-    setState((s) => ({
-      ...s,
-      stories: s.stories.filter((st) => st.id !== storyId),
-      bookmarks: s.bookmarks.filter((id) => id !== storyId),
-      progress: s.progress.filter((p) => p.storyId !== storyId),
-      writerNotifications: s.writerNotifications.filter((item) => item.storyId !== storyId),
-      comments: s.comments.filter((c) => {
-        const story = s.stories.find((st) => st.id === storyId);
-        return !story?.chapters.some((ch) => ch.id === c.chapterId);
-      }),
-      tips: s.tips.filter((tip) => tip.storyId !== storyId),
+    setState((current) => ({
+      ...current,
+      stories: current.stories.filter((story) => story.id !== storyId),
+      bookmarks: current.bookmarks.filter((id) => id !== storyId),
+      likedStories: current.likedStories.filter((id) => id !== storyId),
+      progress: current.progress.filter((item) => item.storyId !== storyId),
+      comments: current.comments.filter((comment) => !current.stories.find((story) => story.id === storyId)?.chapters.some((chapter) => chapter.id === comment.chapterId)),
+      tips: current.tips.filter((tip) => tip.storyId !== storyId),
     }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.from('stories').delete().eq('id', storyId);
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const getStory = useCallback(
-    (storyId: string) => state.stories.find((st) => st.id === storyId),
+    (storyId: string) => state.stories.find((story) => story.id === storyId),
     [state.stories],
   );
 
   const saveChapter = useCallback((storyId: string, chapter: Chapter) => {
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((st) => {
-        if (st.id !== storyId) return st;
-        const exists = st.chapters.find((c) => c.id === chapter.id);
-        if (exists) {
-          return {
-            ...st,
-            status: chapter.status === 'published' ? 'published' : st.status,
-            chapters: st.chapters.map((c) => (c.id === chapter.id ? chapter : c)),
-          };
-        }
-        const chapters = [...st.chapters, chapter].sort((a, b) => a.number - b.number);
+    setState((current) => ({
+      ...current,
+      stories: current.stories.map((story) => {
+        if (story.id !== storyId) return story;
+        const chapters = story.chapters.some((item) => item.id === chapter.id)
+          ? story.chapters.map((item) => item.id === chapter.id ? chapter : item)
+          : [...story.chapters, chapter];
         return {
-          ...st,
-          status: chapter.status === 'published' ? 'published' : st.status,
-          chapters,
+          ...story,
+          status: chapter.status === 'published' ? 'published' : story.status,
+          chapters: chapters.sort((a, b) => a.number - b.number),
         };
       }),
     }));
-  }, []);
+    void persist(async () => {
+      await saveChapterRemote(storyId, chapter);
+      if (supabaseClient) {
+        const publishResult = await supabaseClient
+          .from('stories')
+          .update({
+            updated_at: Date.now(),
+            ...(chapter.status === 'published' && { status: 'published' }),
+          })
+          .eq('id', storyId);
+        if (publishResult.error) throw publishResult.error;
+      }
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const deleteChapter = useCallback((storyId: string, chapterId: string) => {
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((st) =>
-        st.id === storyId
-          ? { ...st, chapters: st.chapters.filter((c) => c.id !== chapterId) }
-          : st,
+    setState((current) => ({
+      ...current,
+      stories: current.stories.map((story) =>
+        story.id === storyId ? { ...story, chapters: story.chapters.filter((chapter) => chapter.id !== chapterId) } : story,
       ),
-      comments: s.comments.filter((c) => c.chapterId !== chapterId),
-      tips: s.tips.filter((tip) => tip.chapterId !== chapterId),
-      writerNotifications: s.writerNotifications.filter((item) => item.chapterId !== chapterId),
+      comments: current.comments.filter((comment) => comment.chapterId !== chapterId),
+      tips: current.tips.filter((tip) => tip.chapterId !== chapterId),
     }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.from('chapters').delete().eq('id', chapterId).eq('story_id', storyId);
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist]);
 
   const reorderChapters = useCallback((storyId: string, chapterIds: string[]) => {
-    setState((s) => ({
-      ...s,
-      stories: s.stories.map((st) => {
-        if (st.id !== storyId) return st;
-        const reordered = chapterIds
-          .map((id, idx) => {
-            const ch = st.chapters.find((c) => c.id === id);
-            return ch ? { ...ch, number: idx + 1 } : null;
-          })
-          .filter((c): c is Chapter => c !== null);
-        return { ...st, chapters: reordered };
-      }),
+    const reordered = state.stories.find((story) => story.id === storyId)?.chapters
+      .map((chapter) => {
+        const index = chapterIds.indexOf(chapter.id);
+        return index >= 0 ? { ...chapter, number: index + 1 } : chapter;
+      }) ?? [];
+    setState((current) => ({
+      ...current,
+      stories: current.stories.map((story) => story.id === storyId ? { ...story, chapters: reordered } : story),
     }));
-  }, []);
+    void persist(async () => {
+      if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+      const result = await supabaseClient.rpc('reorder_aksara_chapters', {
+        p_story_id: storyId,
+        p_chapter_ids: chapterIds,
+      });
+      if (result.error) throw result.error;
+      await refreshRef.current(userRef.current);
+    });
+  }, [persist, state.stories]);
 
   const getChapter = useCallback(
-    (storyId: string, chapterId: string) => {
-      const story = state.stories.find((st) => st.id === storyId);
-      return story?.chapters.find((c) => c.id === chapterId);
-    },
+    (storyId: string, chapterId: string) => state.stories.find((story) => story.id === storyId)?.chapters.find((chapter) => chapter.id === chapterId),
     [state.stories],
   );
 
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string, displayName: string) => {
+    if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
+    const { error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: { data: { display_name: displayName.trim() || 'คุณ' } },
+    });
+    if (error) throw error;
+  }, []);
+
+  const signOut = useCallback(async () => {
+    if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) throw error;
+  }, []);
+
   const value: AppContextType = {
     state,
+    authUser: authUser ? { id: authUser.id, email: authUser.email } : null,
+    authLoading,
+    isWriter,
     persistenceError,
     toggleBookmark,
     toggleLike,
@@ -546,11 +654,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updateProfile,
     addDonation,
     getTips,
-    setVIP,
     setAutoRenew,
     setReadingTheme,
     setFontFamily,
     setFontSize,
+    signIn,
+    signUp,
+    signOut,
     saveStory,
     deleteStory,
     getStory,

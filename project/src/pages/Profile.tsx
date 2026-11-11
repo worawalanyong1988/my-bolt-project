@@ -1,15 +1,14 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Modal } from '@/components/Modal';
-import { Toggle } from '@/components/Toggle';
 import type { FontFamily, ReadingTheme } from '@/types';
+import { uploadProfileAvatar } from '@/services/profileStorage';
 import {
   Crown,
   PenTool,
   Settings,
   LogOut,
-  Check,
   Bell,
   Moon,
   HelpCircle,
@@ -20,22 +19,33 @@ import {
 export function Profile() {
   const {
     state,
-    setVIP,
-    setAutoRenew,
     setReadingTheme,
     setFontFamily,
     setFontSize,
     updateProfile,
-  } = useApp();
+      authUser,
+      authLoading,
+      isWriter,
+      signIn,
+      signUp,
+      signOut,
+    } = useApp();
   const { navigate } = useRouter();
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  const [showManageSub, setShowManageSub] = useState(false);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [activePanel, setActivePanel] = useState<'notifications' | 'settings' | 'help' | 'logout' | null>(null);
   const [displayName, setDisplayName] = useState(state.profile.displayName);
   const [bio, setBio] = useState(state.profile.bio);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(state.profile.displayName);
+    setBio(state.profile.bio);
+  }, [state.profile.displayName, state.profile.bio]);
 
   const notifications = [
     ...state.comments.flatMap((comment) => {
@@ -62,22 +72,24 @@ export function Profile() {
     }),
   ].sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
 
-  const handleSubscribe = () => {
-    setVIP(true);
-    setAutoRenew(true);
-    setShowPaywall(false);
-  };
-
-  const handleSaveProfile = () => {
-    updateProfile({
-      ...state.profile,
-      displayName: displayName.trim() || 'คุณ',
-      bio: bio.trim(),
-    });
-    setDisplayName(displayName.trim() || 'คุณ');
-    setBio(bio.trim());
-    setProfileError(null);
-    setProfileMessage('บันทึกข้อมูลโปรไฟล์แล้ว');
+  const handleSaveProfile = async () => {
+    if (!authUser) {
+      setProfileError('กรุณาเข้าสู่ระบบก่อนบันทึกโปรไฟล์');
+      return;
+    }
+    try {
+      await updateProfile({
+        ...state.profile,
+        displayName: displayName.trim() || 'คุณ',
+        bio: bio.trim(),
+      });
+      setDisplayName(displayName.trim() || 'คุณ');
+      setBio(bio.trim());
+      setProfileError(null);
+      setProfileMessage('บันทึกข้อมูลโปรไฟล์แล้ว');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'บันทึกโปรไฟล์ไม่สำเร็จ');
+    }
   };
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,16 +108,112 @@ export function Profile() {
     }
 
     try {
-      const avatarUrl = await resizeAvatar(file);
-      updateProfile({ ...state.profile, avatarUrl });
+      if (!authUser) throw new Error('กรุณาเข้าสู่ระบบก่อนเปลี่ยนรูปโปรไฟล์');
+      const resizedFile = await resizeAvatar(file);
+      const avatarUrl = await uploadProfileAvatar(authUser.id, resizedFile);
+      await updateProfile({ ...state.profile, avatarUrl });
       setProfileMessage('เปลี่ยนรูปโปรไฟล์แล้ว');
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : 'อ่านรูปภาพไม่สำเร็จ กรุณาลองอีกครั้ง');
     }
   };
 
+  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setProfileError(null);
+    setProfileMessage(null);
+    try {
+      if (authMode === 'sign-up') {
+        await signUp(authEmail.trim(), authPassword, displayName);
+        setProfileMessage('สมัครบัญชีสำเร็จ หากเปิดการยืนยันอีเมลใน Supabase โปรดตรวจอีเมลก่อนเข้าสู่ระบบ');
+      } else {
+        await signIn(authEmail.trim(), authPassword);
+        setAuthPassword('');
+        setProfileMessage('เข้าสู่ระบบสำเร็จ');
+      }
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'ยืนยันตัวตนไม่สำเร็จ');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      setActivePanel(null);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'ออกจากระบบไม่สำเร็จ');
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 pb-6">
+      <section className="mb-4 rounded-2xl border border-cream-200 bg-white p-4">
+        {authUser ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-charcoal">{authUser.email}</p>
+              <p className="mt-1 text-xs text-charcoal-muted">
+                {isWriter ? 'บัญชีนักเขียนที่ได้รับอนุญาต' : 'บัญชีผู้อ่าน'} · ข้อมูลซิงก์ผ่าน Supabase
+              </p>
+            </div>
+            <button type="button" onClick={handleSignOut} className="rounded-full bg-cream-100 px-4 py-2 text-xs font-semibold text-charcoal hover:bg-cream-200">
+              ออกจากระบบ
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleAuthSubmit} className="space-y-3">
+            <div>
+              <h2 className="text-sm font-bold text-charcoal">
+                {authMode === 'sign-in' ? 'เข้าสู่ระบบเพื่อซิงก์ข้อมูล' : 'สร้างบัญชีผู้อ่าน'}
+              </h2>
+              <p className="mt-1 text-xs text-charcoal-muted">ต้องเข้าสู่ระบบเพื่อบันทึกโปรไฟล์ ชั้นหนังสือ ความคืบหน้า และส่งคอมเมนต์</p>
+            </div>
+            {authMode === 'sign-up' && (
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                maxLength={40}
+                required
+                placeholder="ชื่อที่แสดง"
+                className="w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+              />
+            )}
+            <input
+              type="email"
+              autoComplete="email"
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+              required
+              placeholder="อีเมล"
+              className="w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+            />
+            <input
+              type="password"
+              autoComplete={authMode === 'sign-in' ? 'current-password' : 'new-password'}
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              minLength={8}
+              required
+              placeholder="รหัสผ่าน (อย่างน้อย 8 ตัวอักษร)"
+              className="w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+            />
+            <div className="flex items-center gap-2">
+              <button type="submit" disabled={authBusy || authLoading} className="flex-1 rounded-xl bg-terracotta-500 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+                {authBusy ? 'กำลังดำเนินการ...' : authMode === 'sign-in' ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก'}
+              </button>
+              <button type="button" onClick={() => setAuthMode(authMode === 'sign-in' ? 'sign-up' : 'sign-in')} className="rounded-xl bg-cream-100 px-3 py-2.5 text-xs font-semibold text-charcoal">
+                {authMode === 'sign-in' ? 'สร้างบัญชี' : 'มีบัญชีแล้ว'}
+              </button>
+            </div>
+          </form>
+        )}
+        {profileMessage && <p className="mt-2 text-xs text-emerald-700" role="status">{profileMessage}</p>}
+        {profileError && <p className="mt-2 text-xs text-red-600" role="alert">{profileError}</p>}
+      </section>
+
       <section
         className={`relative mb-4 overflow-hidden rounded-3xl p-5 shadow-lg ${
           state.isVIP
@@ -159,17 +267,19 @@ export function Profile() {
           type="file"
           accept="image/*"
           onChange={handleAvatarUpload}
+          disabled={!authUser}
           className="hidden"
           aria-label="เลือกรูปโปรไฟล์"
         />
         <button
           type="button"
           onClick={() => avatarInputRef.current?.click()}
+          disabled={!authUser}
           className={`relative mt-4 inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition ${
             state.isVIP
               ? 'bg-white/15 text-amber-50 hover:bg-white/25'
               : 'bg-white text-charcoal hover:bg-cream-50'
-          }`}
+          } disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <ImagePlus size={15} />
           เปลี่ยนรูปโปรไฟล์
@@ -179,20 +289,11 @@ export function Profile() {
             <div>
               <p className="text-sm font-bold text-amber-100">Early Bird VIP Member</p>
               <p className="mt-0.5 text-xs text-white/75">
-                อ่านไม่อั้นทุกเรื่อง · ต่ออายุอัตโนมัติ{state.autoRenew ? ' (เปิด)' : ' (ปิด)'}
+                อ่านตอนที่สงวนสิทธิ์ VIP ได้ตามสถานะสมาชิก
               </p>
             </div>
             <Crown size={22} className="text-amber-200" />
           </div>
-        )}
-        {state.isVIP && (
-          <button
-            type="button"
-            onClick={() => setShowManageSub(true)}
-            className="relative mt-3 w-full rounded-xl bg-white/15 py-2.5 text-sm font-medium text-white transition hover:bg-white/25"
-          >
-            จัดการการสมัครสมาชิก
-          </button>
         )}
       </section>
 
@@ -206,6 +307,7 @@ export function Profile() {
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
           maxLength={40}
+          disabled={!authUser}
           className="mb-3 w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
           placeholder="ชื่อที่ผู้อื่นจะเห็น"
         />
@@ -218,12 +320,14 @@ export function Profile() {
           onChange={(event) => setBio(event.target.value)}
           maxLength={160}
           rows={2}
+          disabled={!authUser}
           className="w-full resize-none rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
           placeholder="เขียนแนะนำตัวสั้น ๆ"
         />
         <button
           type="button"
           onClick={handleSaveProfile}
+          disabled={!authUser}
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-terracotta-500 py-2.5 text-sm font-bold text-white transition hover:bg-terracotta-600"
         >
           <Save size={16} />
@@ -253,42 +357,24 @@ export function Profile() {
               อ่านไม่อั้นทุกเรื่อง เพียง 59 บาท/เดือน
             </p>
             <p className="text-xs text-white/70 mt-0.5 line-through">จากปกติ 99 บาท</p>
-            <button
-              onClick={() => setShowPaywall(true)}
-              className="mt-3 bg-white text-terracotta-600 px-5 py-2 rounded-full text-sm font-bold hover:bg-cream-50 transition shadow active:scale-95"
-            >
-              สมัครเลย
-            </button>
+            <p className="mt-3 rounded-xl bg-white/15 p-3 text-xs leading-relaxed text-white">
+              ระบบชำระเงินจริงยังไม่เปิดใช้ สถานะ VIP จะเปลี่ยนได้หลังยืนยันรายการจากระบบหลังบ้านเท่านั้น
+            </p>
           </div>
         </div>
       )}
 
-      {/* Dev/Test Toggle */}
-      <div className="bg-cream-100 rounded-2xl p-4 mb-4 border-2 border-dashed border-terracotta-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-charcoal">สลับสถานะ (ทดสอบ)</p>
-            <p className="text-xs text-charcoal-muted mt-0.5">
-              {state.isVIP ? 'สมาชิก VIP' : 'ผู้อ่านทั่วไป'}
-            </p>
-          </div>
-          <Toggle
-            checked={state.isVIP}
-            onChange={(val) => setVIP(val)}
-            activeColor="#E07A5F"
-          />
-        </div>
-      </div>
-
       {/* Menu items */}
       <div className="bg-cream-100 rounded-2xl divide-y divide-cream-200 overflow-hidden">
-        <MenuItem
-          icon={<PenTool size={20} />}
-          label="พื้นที่นักเขียน"
-          subtitle="จัดการนิยายและตอนของคุณ"
-          onClick={() => navigate({ name: 'studio' })}
-          highlight
-        />
+        {isWriter && (
+          <MenuItem
+            icon={<PenTool size={20} />}
+            label="พื้นที่นักเขียน"
+            subtitle="จัดการนิยายและตอนของคุณ"
+            onClick={() => navigate({ name: 'studio' })}
+            highlight
+          />
+        )}
         <MenuItem
           icon={<Bell size={20} />}
           label="การแจ้งเตือน"
@@ -320,79 +406,6 @@ export function Profile() {
       </div>
 
       <p className="text-center text-xs text-charcoal-muted mt-6">Aksara v1.0 · แพลตฟอร์มนิยายออนไลน์</p>
-
-      {/* Paywall modal */}
-      <Modal open={showPaywall} onClose={() => setShowPaywall(false)} maxWidth="max-w-sm">
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Crown size={32} className="text-amber-900" />
-          </div>
-          <h2 className="text-xl font-bold text-charcoal">สมาชิกพรีเมียม VIP</h2>
-          <p className="text-sm text-charcoal-muted mt-2">อ่านไม่อั้นทุกเรื่อง ทุกตอน ไม่มีโฆษณา</p>
-          <div className="mt-5 bg-cream-100 rounded-2xl p-4">
-            <div className="flex items-baseline justify-center gap-2">
-              <span className="text-3xl font-bold text-terracotta-500">59</span>
-              <span className="text-sm text-charcoal-muted">บาท/เดือน</span>
-            </div>
-            <p className="text-xs text-charcoal-muted line-through mt-1">ปกติ 99 บาท</p>
-            <div className="mt-3 space-y-2 text-left">
-              {['อ่านทุกตอนไม่จำกัด', 'ไม่มีโฆษณารบกวน', 'รองรับทุกแนวนิยาย', 'ยกเลิกได้ทุกเมื่อ'].map(
-                (feat) => (
-                  <div key={feat} className="flex items-center gap-2 text-sm text-charcoal">
-                    <Check size={16} className="text-emerald-500 shrink-0" />
-                    {feat}
-                  </div>
-                ),
-              )}
-            </div>
-          </div>
-          <button
-            onClick={handleSubscribe}
-            className="mt-5 w-full bg-terracotta-500 hover:bg-terracotta-600 text-white py-3 rounded-2xl font-bold text-sm transition shadow-lg active:scale-95"
-          >
-            สมัครเลย — 59 บาท/เดือน
-          </button>
-        </div>
-      </Modal>
-
-      {/* Manage subscription modal */}
-      <Modal
-        open={showManageSub}
-        onClose={() => setShowManageSub(false)}
-        title="จัดการการสมัครสมาชิก"
-        maxWidth="max-w-sm"
-      >
-        <div className="space-y-4">
-          <div className="bg-gradient-to-br from-terracotta-500 to-terracotta-700 text-white rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Crown size={18} className="text-amber-200" />
-              <span className="text-xs font-semibold text-amber-200">Early Bird VIP</span>
-            </div>
-            <p className="text-lg font-bold">สมาชิกพรีเมียม</p>
-            <p className="text-sm text-white/80 mt-1">59 บาท/เดือน</p>
-          </div>
-
-          <div className="flex items-center justify-between bg-cream-100 rounded-xl p-3">
-            <div>
-              <p className="text-sm font-semibold text-charcoal">ต่ออายุอัตโนมัติ</p>
-              <p className="text-xs text-charcoal-muted mt-0.5">
-                {state.autoRenew ? 'เปิดอยู่ — ต่ออายุทุกเดือน' : 'ปิดอยู่ — จะหมดอายุสิ้นเดือน'}
-              </p>
-            </div>
-            <Toggle checked={state.autoRenew} onChange={setAutoRenew} />
-          </div>
-
-          <button
-            onClick={() => {
-              setAutoRenew(false);
-              setShowManageSub(false);
-            }}
-            className="w-full text-red-500 hover:bg-red-50 py-3 rounded-xl text-sm font-semibold transition"
-          >
-            ยกเลิกการต่ออายุอัตโนมัติ
-          </button>
-        </div>
-      </Modal>
 
       <Modal
         open={activePanel !== null}
@@ -477,7 +490,7 @@ export function Profile() {
           <div className="space-y-4 text-sm text-charcoal">
             <div>
               <p className="font-semibold">ข้อมูลถูกบันทึกที่ไหน?</p>
-              <p className="mt-1 text-charcoal-muted">ข้อมูลตัวอย่างและการตั้งค่าจัดเก็บในเบราว์เซอร์เครื่องนี้</p>
+              <p className="mt-1 text-charcoal-muted">ข้อมูลนิยาย คอมเมนต์ และโปรไฟล์ที่เข้าสู่ระบบจะจัดเก็บและซิงก์ผ่าน Supabase</p>
             </div>
             <div>
               <p className="font-semibold">สร้างหรือแก้ไขนิยายได้อย่างไร?</p>
@@ -493,17 +506,14 @@ export function Profile() {
         {activePanel === 'logout' && (
           <div className="space-y-4">
             <p className="text-sm text-charcoal-muted">
-              แอปตัวอย่างนี้ยังไม่มีระบบบัญชี จึงไม่มีเซสชันให้ยกเลิก และข้อมูลในเบราว์เซอร์จะไม่ถูกลบ
+              ออกจากระบบบัญชี Supabase บนอุปกรณ์นี้
             </p>
             <button
               type="button"
-              onClick={() => {
-                setActivePanel(null);
-                navigate({ name: 'home' });
-              }}
+              onClick={() => void handleSignOut()}
               className="w-full rounded-xl bg-terracotta-500 py-2.5 text-sm font-semibold text-white hover:bg-terracotta-600"
             >
-              กลับหน้าแรกในโหมดผู้เยี่ยมชม
+              ยืนยันออกจากระบบ
             </button>
           </div>
         )}
@@ -552,7 +562,7 @@ function MenuItem({
   );
 }
 
-async function resizeAvatar(file: File): Promise<string> {
+async function resizeAvatar(file: File): Promise<File> {
   const image = await createImageBitmap(file);
   try {
     const size = 512;
@@ -565,7 +575,13 @@ async function resizeAvatar(file: File): Promise<string> {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('เตรียมรูปภาพไม่สำเร็จ กรุณาลองอีกครั้ง');
     context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, size, size);
-    return canvas.toDataURL('image/jpeg', 0.82);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) resolve(result);
+        else reject(new Error('ปรับขนาดรูปภาพไม่สำเร็จ'));
+      }, 'image/jpeg', 0.82);
+    });
+    return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
   } finally {
     image.close();
   }

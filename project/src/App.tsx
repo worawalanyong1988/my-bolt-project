@@ -16,7 +16,7 @@ import { WriterStatistics } from '@/pages/WriterStatistics';
 
 function AppContent() {
   const { route, navigate } = useRouter();
-  const { state, persistenceError } = useApp();
+  const { state, persistenceError, authLoading, isWriter } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [statisticsAccess, setStatisticsAccess] = useState(false);
@@ -28,13 +28,20 @@ function AppContent() {
   }, [navigate]);
 
   useEffect(() => {
+    if (
+      !authLoading &&
+      !isWriter &&
+      (route.name === 'studio' || route.name === 'studio-story' || route.name === 'studio-statistics')
+    ) {
+      navigate({ name: 'profile' });
+    }
     if (route.name === 'studio-statistics') {
       if (!statisticsAccess) navigate({ name: 'studio' });
     } else if (previousRoute.current === 'studio-statistics') {
       setStatisticsAccess(false);
     }
     previousRoute.current = route.name;
-  }, [route, statisticsAccess, navigate]);
+  }, [route, statisticsAccess, navigate, authLoading, isWriter]);
 
   const isReader = route.name === 'reader';
   const isStudio =
@@ -118,7 +125,13 @@ function AppContent() {
           {persistenceError}
         </div>
       )}
-      <main className={showBottomNav ? 'pb-20' : ''}>{content}</main>
+      <main className={showBottomNav ? 'pb-20' : ''}>
+        {authLoading ? (
+          <div className="mx-auto max-w-lg px-4 py-20 text-center text-sm text-charcoal-muted">
+            กำลังเชื่อมต่อฐานข้อมูล...
+          </div>
+        ) : content}
+      </main>
 
       {showBottomNav && <BottomNav />}
     </div>

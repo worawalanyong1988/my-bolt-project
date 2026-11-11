@@ -57,7 +57,6 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     setReadingTheme,
     setFontFamily,
     setFontSize,
-    setVIP,
     updateProgress,
     recordStoryView,
     recordChapterView,
@@ -66,6 +65,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     deleteComment,
     getTips,
     addDonation,
+    authUser,
   } = useApp();
   const { navigate } = useRouter();
   const [showSettings, setShowSettings] = useState(false);
@@ -73,6 +73,8 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   const [stickerTab, setStickerTab] = useState<'emoji' | 'art'>('emoji');
   const [showStickers, setShowStickers] = useState(false);
   const [tipSuccess, setTipSuccess] = useState<string | null>(null);
+  const [donationError, setDonationError] = useState<string | null>(null);
+  const [isSubmittingDonation, setIsSubmittingDonation] = useState(false);
   const [pendingDonation, setPendingDonation] = useState<(typeof DONATION_STICKERS)[number] | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
   const [donationMessage, setDonationMessage] = useState('');
@@ -168,40 +170,63 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   );
   const tips = getTips(chapter.id);
 
-  const handleSendComment = () => {
+  const handleSendComment = async () => {
+    if (!authUser) {
+      navigate({ name: 'profile' });
+      return;
+    }
     if (commentText.trim() || selectedSticker) {
-      addComment(story.id, chapter.id, commentText.trim(), selectedSticker || undefined);
-      setCommentText('');
-      setSelectedSticker(null);
+      try {
+        await addComment(story.id, chapter.id, commentText.trim(), selectedSticker || undefined);
+        setCommentText('');
+        setSelectedSticker(null);
+      } catch {
+        return;
+      }
     }
   };
 
   const handleStickerClick = (stickerId: string, type: 'emoji' | 'art') => {
+    if (!authUser) {
+      navigate({ name: 'profile' });
+      return;
+    }
     const sticker = { id: stickerId, type };
     if (commentText.trim()) {
       setSelectedSticker(sticker);
     } else {
-      addComment(story.id, chapter.id, '', sticker);
+      void addComment(story.id, chapter.id, '', sticker).catch(() => undefined);
     }
     setShowStickers(false);
   };
 
-  const handleConfirmDonation = () => {
+  const handleConfirmDonation = async () => {
     if (!pendingDonation) return;
-    addDonation(story.id, chapter.id, {
-      stickerId: pendingDonation.id,
-      stickerEmoji: pendingDonation.emoji,
-      label: pendingDonation.label,
-      amount: pendingDonation.amount,
-      paymentMethod,
-      message: donationMessage.trim() || 'ขอบคุณสำหรับนิยายสนุกๆ นะคะ!',
-    });
-    setPendingDonation(null);
-    setDonationMessage('');
-    setTipSuccess('โดเนทสนับสนุนนักเขียนสำเร็จ ขอบคุณค่ะ!');
-    setTimeout(() => {
-      setTipSuccess(null);
-    }, 2000);
+    if (!authUser) {
+      setPendingDonation(null);
+      navigate({ name: 'profile' });
+      return;
+    }
+    setDonationError(null);
+    setIsSubmittingDonation(true);
+    try {
+      await addDonation(story.id, chapter.id, {
+        stickerId: pendingDonation.id,
+        stickerEmoji: pendingDonation.emoji,
+        label: pendingDonation.label,
+        amount: pendingDonation.amount,
+        paymentMethod,
+        message: donationMessage.trim() || 'ขอบคุณสำหรับนิยายสนุกๆ นะคะ!',
+      });
+      setPendingDonation(null);
+      setDonationMessage('');
+      setTipSuccess('บันทึกการสนับสนุนลงฐานข้อมูลแล้ว (รายการชำระเงินยังเป็นโหมดจำลอง)');
+      setTimeout(() => setTipSuccess(null), 3000);
+    } catch (error) {
+      setDonationError(error instanceof Error ? error.message : 'บันทึกโดเนทไม่สำเร็จ กรุณาลองอีกครั้ง');
+    } finally {
+      setIsSubmittingDonation(false);
+    }
   };
 
   const handleTranslate = async () => {
@@ -360,13 +385,14 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               สมัครสมาชิก VIP รายเดือนเพื่อปลดล็อกทุกตอน VIP โดยไม่ต้องจ่ายเพิ่มเป็นรายตอน
             </p>
             <button
-              onClick={() => setVIP(true, story.id)}
-              className="bg-terracotta-500 hover:bg-terracotta-600 text-white px-6 py-3 rounded-2xl font-bold text-sm transition shadow-lg active:scale-95"
+              type="button"
+              disabled
+              className="rounded-2xl bg-cream-200 px-6 py-3 text-sm font-bold text-charcoal-muted"
             >
               <Crown size={16} className="inline mr-1" />
-              สมัครสมาชิก VIP — 59 บาท/เดือน
+              สมัคร VIP ยังไม่เปิดใช้งาน
             </button>
-            <p className="mt-3 text-[10px] text-charcoal-muted">ระบบสมัครสมาชิกนี้เป็นตัวอย่างจำลอง ไม่เรียกเก็บเงินจริง</p>
+            <p className="mt-3 text-[10px] text-charcoal-muted">สถานะ VIP ปรับได้หลังยืนยันการชำระเงินจริงผ่านระบบหลังบ้านเท่านั้น</p>
           </div>
         ) : (
           <>
@@ -461,6 +487,11 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                             key={sticker.id}
                             type="button"
                             onClick={() => {
+                              if (!authUser) {
+                                navigate({ name: 'profile' });
+                                return;
+                              }
+                              setDonationError(null);
                               setPendingDonation(sticker);
                               setPaymentMethod('card');
                             }}
@@ -485,8 +516,13 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                   </p>
                 )}
                 <p className="mt-3 text-center text-[10px] text-charcoal-muted">
-                  ระบบชำระเงินนี้เป็นตัวอย่างจำลอง ไม่เรียกเก็บเงินจริง
+                    ข้อมูลโดเนทจะบันทึกใน Supabase แต่ช่องทางชำระเงินยังเป็นตัวอย่างและไม่มีการเรียกเก็บเงินจริง
                 </p>
+                  {!authUser && (
+                    <button type="button" onClick={() => navigate({ name: 'profile' })} className="mt-3 w-full rounded-xl bg-terracotta-50 px-3 py-2 text-xs font-semibold text-terracotta-700">
+                      เข้าสู่ระบบเพื่อส่งสติกเกอร์สนับสนุน
+                    </button>
+                  )}
               </section>
             )}
 
@@ -498,12 +534,18 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
 
               {/* Comment input */}
               <div className="mb-3 rounded-2xl border border-cream-200 bg-white/70 p-3">
+                {!authUser && (
+                  <button type="button" onClick={() => navigate({ name: 'profile' })} className="mb-3 w-full rounded-xl bg-terracotta-50 px-3 py-2 text-xs font-semibold text-terracotta-700">
+                    เข้าสู่ระบบเพื่อแสดงความคิดเห็นหรือส่งสติกเกอร์
+                  </button>
+                )}
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={commentText}
+                    disabled={!authUser}
                     onChange={(e) => setCommentText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleSendComment()}
                     placeholder="แสดงความคิดเห็น..."
                     className="min-w-0 flex-1 rounded-full border border-transparent bg-black/5 px-4 py-2.5 text-sm focus:border-terracotta-300 focus:outline-none"
                   />
@@ -515,14 +557,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                     }}
                     aria-label="เลือกสติกเกอร์แสดงอารมณ์"
                     aria-expanded={showStickers}
+                    disabled={!authUser}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-terracotta-100 text-terracotta-700 transition hover:bg-terracotta-200"
                   >
                     <Palette size={18} />
                   </button>
                   <button
                     type="button"
-                    onClick={handleSendComment}
-                    disabled={!commentText.trim() && !selectedSticker}
+                    onClick={() => void handleSendComment()}
+                    disabled={!authUser || (!commentText.trim() && !selectedSticker)}
                     aria-label="ส่งความคิดเห็น"
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-terracotta-500 text-white transition hover:bg-terracotta-600 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -756,13 +799,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
             </div>
 
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] leading-relaxed text-amber-900">
-              โหมดทดลอง: การยืนยันจะบันทึกประวัติโดเนทและคอมเมนต์ในเครื่องเท่านั้น ไม่มีการตัดเงินจริง
+              โหมดทดลอง: การยืนยันจะบันทึกประวัติโดเนทและคอมเมนต์ลง Supabase แต่ไม่ได้เชื่อมผู้ให้บริการชำระเงิน จึงไม่มีการตัดเงินจริง
             </p>
+            {donationError && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{donationError}</p>}
 
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setPendingDonation(null)}
+                disabled={isSubmittingDonation}
                 className="flex-1 rounded-xl bg-cream-200 py-3 text-sm font-semibold text-charcoal transition hover:bg-cream-200/80"
               >
                 ยกเลิก
@@ -770,9 +815,10 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               <button
                 type="button"
                 onClick={handleConfirmDonation}
-                className="flex-1 rounded-xl bg-terracotta-500 py-3 text-sm font-bold text-white transition hover:bg-terracotta-600"
+                disabled={isSubmittingDonation}
+                className="flex-1 rounded-xl bg-terracotta-500 py-3 text-sm font-bold text-white transition hover:bg-terracotta-600 disabled:opacity-50"
               >
-                {paymentMethod === 'card'
+                {isSubmittingDonation ? 'กำลังบันทึก...' : paymentMethod === 'card'
                   ? 'ยืนยันชำระเงินผ่านบัตร'
                   : paymentMethod === 'promptpay'
                     ? 'ยืนยันชำระเงินผ่านพร้อมเพย์'

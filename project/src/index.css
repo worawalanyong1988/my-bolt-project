@@ -58,9 +58,17 @@
   .prose-reader p {
     margin-bottom: 1.25em;
     line-height: 2;
+    text-indent: 2.5em;
   }
-  .prose-reader :not(h1):not(h2):not([data-reader-font-scale]) {
+  .prose-reader :not(h1):not(h2):not([data-editor-font-size]) {
     font-size: inherit !important;
+  }
+  .chapter-editor.prose-reader p {
+    text-indent: 0;
+  }
+  .chapter-editor.auto-indent p:not([data-manual-indent='off']),
+  .chapter-editor p[data-manual-indent='on'] {
+    text-indent: 2.5em !important;
   }
   .prose-reader h1 {
     font-size: 1.6em;

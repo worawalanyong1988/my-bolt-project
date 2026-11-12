@@ -346,12 +346,14 @@ function ChapterEditor({
   const [contentVersion, setContentVersion] = useState(0);
   const [editorFontSize, setEditorFontSize] = useState(16);
   const [toolbarFontSize, setToolbarFontSize] = useState(16);
+  const [autoIndent, setAutoIndent] = useState(true);
   const savedEditorSelection = useRef<Range | null>(null);
 
   // Initialize contenteditable content
   useEffect(() => {
     if (editorRef.current && !editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = chapter?.content || '<p><br></p>';
+      editorRef.current.innerHTML = cleanChapterContent(chapter?.content || '<p><br></p>');
+      normalizeEditorParagraphs(editorRef.current);
     }
   }, [chapter]);
 
@@ -432,7 +434,7 @@ function ChapterEditor({
       textRange.setStart(textNode, startOffset);
       textRange.setEnd(textNode, endOffset);
       const span = document.createElement('span');
-      span.dataset.readerFontScale = 'true';
+      span.dataset.editorFontSize = 'true';
       span.style.fontSize = `${(fontSize / editorFontSize) * 100}%`;
       span.append(textRange.extractContents());
       textRange.insertNode(span);
@@ -482,51 +484,67 @@ function ChapterEditor({
     if (!sel || sel.rangeCount === 0) return;
     const node = sel.anchorNode;
     if (!node) return;
-    // Find the current block element
     let block: HTMLElement | null = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
     while (block && block !== editorRef.current) {
       if (block.tagName === 'P') {
-        const currentIndent = block.style.textIndent;
-        if (currentIndent) {
-          block.style.textIndent = '';
-        } else {
-          block.style.textIndent = '2em';
-        }
+        const currentlyIndented = block.dataset.manualIndent
+          ? block.dataset.manualIndent === 'on'
+          : autoIndent;
+        block.dataset.manualIndent = currentlyIndented ? 'off' : 'on';
         setContentVersion((v) => v + 1);
         return;
       }
       block = block.parentElement;
     }
-    // If no <p> found, format as <p> first then indent
     document.execCommand('formatBlock', false, '<p>');
-    if (block) {
-      block.style.textIndent = '2em';
+    const formattedNode = sel.anchorNode;
+    let formattedBlock: HTMLElement | null = formattedNode?.nodeType === Node.ELEMENT_NODE
+      ? formattedNode as HTMLElement
+      : formattedNode?.parentElement ?? null;
+    while (formattedBlock && formattedBlock !== editorRef.current) {
+      if (formattedBlock.tagName === 'P') {
+        formattedBlock.dataset.manualIndent = autoIndent ? 'off' : 'on';
+        setContentVersion((v) => v + 1);
+        return;
+      }
+      formattedBlock = formattedBlock.parentElement;
+    }
+    if (editorRef.current) {
+      normalizeEditorParagraphs(editorRef.current);
       setContentVersion((v) => v + 1);
     }
-  }, []);
+  }, [autoIndent]);
 
   // Auto-format: wrap all loose text nodes in <p> tags
   const handleAutoFormat = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    // Wrap loose text nodes in <p> tags
-    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-    const textNodes: Text[] = [];
-    let current: Node | null;
-    while ((current = walker.nextNode())) {
-      const text = current.textContent?.trim();
-      if (text && current.parentElement === editor) {
-        textNodes.push(current as Text);
-      }
-    }
-    textNodes.forEach((tn) => {
-      const p = document.createElement('p');
-      p.textContent = tn.textContent;
-      p.style.textIndent = '2em';
-      editor.replaceChild(p, tn);
-    });
+    normalizeEditorParagraphs(editor);
     setContentVersion((v) => v + 1);
   }, []);
+
+  const handleEditorInput = () => {
+    const editor = editorRef.current;
+    if (editor) normalizeEditorParagraphs(editor);
+    setContentVersion((version) => version + 1);
+    captureEditorSelection();
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const editor = editorRef.current;
+    const pastedText = event.clipboardData.getData('text/plain');
+    if (!editor || !pastedText) return;
+    event.preventDefault();
+    const paragraphs = pastedText
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((line) => `<p>${escapeHtml(line) || '<br>'}</p>`)
+      .join('');
+    document.execCommand('insertHTML', false, paragraphs);
+    normalizeEditorParagraphs(editor);
+    setContentVersion((version) => version + 1);
+    captureEditorSelection();
+  };
 
   const handleLink = () => {
     const selection = window.getSelection();
@@ -600,7 +618,9 @@ function ChapterEditor({
 
   const handleSave = () => {
     if (!title.trim()) return;
-    const content = editorRef.current?.innerHTML || '<p><br></p>';
+    const content = editorRef.current
+      ? cleanChapterContent(editorRef.current.innerHTML)
+      : '<p><br></p>';
     const newChapter: Chapter = {
       id: chapter?.id || uid(),
       number,
@@ -691,6 +711,20 @@ function ChapterEditor({
             <ToolbarBtn onClick={handleAutoFormat} title="จัดย่อหน้าอัตโนมัติ">
               <Pilcrow size={16} />
             </ToolbarBtn>
+            <button
+              type="button"
+              onClick={() => setAutoIndent((enabled) => !enabled)}
+              aria-pressed={autoIndent}
+              title="เปิดหรือปิดการเยื้องบรรทัดแรกอัตโนมัติ"
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                autoIndent
+                  ? 'border-terracotta-300 bg-terracotta-50 text-terracotta-700'
+                  : 'border-cream-200 bg-white text-charcoal-muted hover:bg-cream-50'
+              }`}
+            >
+              <Indent size={14} />
+              เยื้องอัตโนมัติ {autoIndent ? 'เปิด' : 'ปิด'}
+            </button>
             <label className="flex items-center gap-2 rounded-lg border border-terracotta-300 bg-white px-3 py-1.5 text-xs font-bold text-charcoal shadow-sm">
               <Type size={15} className="text-terracotta-600" />
               ขนาดตัวอักษร
@@ -721,12 +755,13 @@ function ChapterEditor({
             contentEditable
             suppressContentEditableWarning
             data-placeholder="เริ่มเขียนเนื้อเรื่องที่นี่... (กด Enter สร้างย่อหน้าใหม่อัตโนมัติ)"
-            onInput={() => setContentVersion((v) => v + 1)}
+            onInput={handleEditorInput}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onMouseUp={captureEditorSelection}
             onKeyUp={captureEditorSelection}
             onTouchEnd={captureEditorSelection}
-            className="w-full min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl bg-cream-100 border border-cream-200 focus:outline-none focus:ring-2 focus:ring-terracotta-300 prose-reader font-plex"
+            className={`chapter-editor prose-reader w-full min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl bg-cream-100 border border-cream-200 focus:outline-none focus:ring-2 focus:ring-terracotta-300 font-plex ${autoIndent ? 'auto-indent' : ''}`}
             style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
           />
         </div>
@@ -751,7 +786,7 @@ function ChapterEditor({
         {showPreview && (
           <div className="bg-white rounded-xl p-4 border border-cream-200 max-h-60 overflow-y-auto">
             <div
-              className="prose-reader font-plex"
+              className={`chapter-editor prose-reader font-plex ${autoIndent ? 'auto-indent' : ''}`}
               style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
               dangerouslySetInnerHTML={{ __html: currentContent }}
             />
@@ -996,6 +1031,70 @@ function wordCount(html: string): number {
 
 function charCount(html: string): number {
   return html.replace(/<[^>]+>/g, '').length;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeEditorParagraphs(editor: HTMLElement): void {
+  const blockTags = new Set(['BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'HR', 'OL', 'P', 'PRE', 'TABLE', 'UL']);
+  for (const child of Array.from(editor.children)) {
+    if (child.tagName !== 'DIV') continue;
+    if (Array.from(child.children).some((nested) => blockTags.has(nested.tagName) || nested.tagName === 'DIV')) {
+      child.replaceWith(...Array.from(child.childNodes));
+      normalizeEditorParagraphs(editor);
+      return;
+    }
+    const paragraph = document.createElement('p');
+    while (child.firstChild) paragraph.append(child.firstChild);
+    if (!paragraph.childNodes.length) paragraph.append(document.createElement('br'));
+    child.replaceWith(paragraph);
+  }
+
+  const inlineNodes: Node[] = [];
+  const wrapInlineNodes = () => {
+    if (!inlineNodes.length) return;
+    const paragraph = document.createElement('p');
+    editor.insertBefore(paragraph, inlineNodes[0]);
+    inlineNodes.forEach((node) => paragraph.append(node));
+    inlineNodes.length = 0;
+  };
+
+  for (const child of Array.from(editor.childNodes)) {
+    const isBlock = child.nodeType === Node.ELEMENT_NODE &&
+      blockTags.has((child as HTMLElement).tagName);
+    if (isBlock) {
+      wrapInlineNodes();
+    } else if (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim()) {
+      child.remove();
+    } else {
+      inlineNodes.push(child);
+    }
+  }
+  wrapInlineNodes();
+}
+
+function cleanChapterContent(html: string): string {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  container.querySelectorAll('span[data-editor-font-size], span[data-reader-font-scale]').forEach((span) => {
+    span.replaceWith(...Array.from(span.childNodes));
+  });
+  container.querySelectorAll<HTMLElement>('*').forEach((element) => {
+    element.style.removeProperty('font-size');
+    element.style.removeProperty('text-indent');
+    element.removeAttribute('data-editor-font-size');
+    element.removeAttribute('data-reader-font-scale');
+    if (element.tagName === 'FONT') element.removeAttribute('size');
+    if (!element.style.cssText) element.removeAttribute('style');
+  });
+  return container.innerHTML || '<p><br></p>';
 }
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {

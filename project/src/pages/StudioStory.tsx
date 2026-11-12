@@ -27,6 +27,7 @@ import {
   Sun,
   Coffee,
   Moon,
+  Type,
   BookOpen,
   Indent,
   Pilcrow,
@@ -343,6 +344,9 @@ function ChapterEditor({
   const savedLinkRange = useRef<Range | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [contentVersion, setContentVersion] = useState(0);
+  const [editorFontSize, setEditorFontSize] = useState(16);
+  const [toolbarFontSize, setToolbarFontSize] = useState(16);
+  const savedEditorSelection = useRef<Range | null>(null);
 
   // Initialize contenteditable content
   useEffect(() => {
@@ -356,6 +360,100 @@ function ChapterEditor({
     editorRef.current?.focus();
     setContentVersion((v) => v + 1);
   }, []);
+
+  const captureEditorSelection = useCallback(() => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (
+      editor &&
+      selection?.rangeCount &&
+      selection.anchorNode &&
+      selection.focusNode &&
+      editor.contains(selection.anchorNode) &&
+      editor.contains(selection.focusNode)
+    ) {
+      savedEditorSelection.current = selection.getRangeAt(0).cloneRange();
+    } else {
+      savedEditorSelection.current = null;
+    }
+  }, []);
+
+  const applyEditorFontSize = (fontSize: number) => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    const range = savedEditorSelection.current?.cloneRange() ??
+      (selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null);
+
+    if (!editor || !range || range.collapsed || !editor.contains(range.commonAncestorContainer)) {
+      setEditorFontSize(fontSize);
+      setToolbarFontSize(fontSize);
+      return;
+    }
+
+    const comparePoints = (
+      firstNode: Node,
+      firstOffset: number,
+      secondNode: Node,
+      secondOffset: number,
+    ) => {
+      const first = document.createRange();
+      first.setStart(firstNode, firstOffset);
+      first.collapse(true);
+      const second = document.createRange();
+      second.setStart(secondNode, secondOffset);
+      second.collapse(true);
+      return first.compareBoundaryPoints(Range.START_TO_START, second);
+    };
+
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let node = walker.nextNode();
+    while (node) {
+      if (node.textContent) textNodes.push(node as Text);
+      node = walker.nextNode();
+    }
+
+    const selectedSegments = textNodes.flatMap((textNode) => {
+      const length = textNode.length;
+      if (
+        comparePoints(range.endContainer, range.endOffset, textNode, 0) <= 0 ||
+        comparePoints(range.startContainer, range.startOffset, textNode, length) >= 0
+      ) {
+        return [];
+      }
+      const startOffset = range.startContainer === textNode ? range.startOffset : 0;
+      const endOffset = range.endContainer === textNode ? range.endOffset : length;
+      return startOffset < endOffset ? [{ textNode, startOffset, endOffset }] : [];
+    });
+
+    const wrapped: HTMLSpanElement[] = [];
+    for (const { textNode, startOffset, endOffset } of selectedSegments.reverse()) {
+      const textRange = document.createRange();
+      textRange.setStart(textNode, startOffset);
+      textRange.setEnd(textNode, endOffset);
+      const span = document.createElement('span');
+      span.dataset.readerFontScale = 'true';
+      span.style.fontSize = `${(fontSize / editorFontSize) * 100}%`;
+      span.append(textRange.extractContents());
+      textRange.insertNode(span);
+      wrapped.unshift(span);
+    }
+
+    if (wrapped.length) {
+      const updatedRange = document.createRange();
+      updatedRange.setStartBefore(wrapped[0]);
+      updatedRange.setEndAfter(wrapped[wrapped.length - 1]);
+      selection?.removeAllRanges();
+      selection?.addRange(updatedRange);
+      savedEditorSelection.current = updatedRange.cloneRange();
+      setToolbarFontSize(fontSize);
+      setContentVersion((version) => version + 1);
+      editor.focus();
+    } else {
+      setEditorFontSize(fontSize);
+      setToolbarFontSize(fontSize);
+    }
+  };
 
   // Auto-paragraph: ensure content is wrapped in <p> blocks on Enter
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -593,7 +691,27 @@ function ChapterEditor({
             <ToolbarBtn onClick={handleAutoFormat} title="จัดย่อหน้าอัตโนมัติ">
               <Pilcrow size={16} />
             </ToolbarBtn>
+            <label className="flex items-center gap-2 rounded-lg border border-terracotta-300 bg-white px-3 py-1.5 text-xs font-bold text-charcoal shadow-sm">
+              <Type size={15} className="text-terracotta-600" />
+              ขนาดตัวอักษร
+              <select
+                value={toolbarFontSize}
+                onPointerDown={captureEditorSelection}
+                onChange={(event) => applyEditorFontSize(Number(event.target.value))}
+                aria-label="ขนาดตัวอักษรในช่องเขียน"
+                className="rounded-md border border-cream-200 bg-cream-50 px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+              >
+                <option value={14}>เล็ก · 14px</option>
+                <option value={16}>ปกติ · 16px</option>
+                <option value={18}>ใหญ่ · 18px</option>
+                <option value={20}>ใหญ่มาก · 20px</option>
+                <option value={24}>ใหญ่พิเศษ · 24px</option>
+              </select>
+            </label>
           </div>
+          <p className="mt-2 px-2 text-[10px] leading-relaxed text-charcoal-muted">
+            คลุมดำข้อความก่อนเลือกขนาดเพื่อปรับเฉพาะส่วนนั้น หรือวางเคอร์เซอร์ไว้ในช่องเพื่อปรับทั้งช่อง
+          </p>
         </div>
 
         {/* Editor area */}
@@ -605,8 +723,11 @@ function ChapterEditor({
             data-placeholder="เริ่มเขียนเนื้อเรื่องที่นี่... (กด Enter สร้างย่อหน้าใหม่อัตโนมัติ)"
             onInput={() => setContentVersion((v) => v + 1)}
             onKeyDown={handleKeyDown}
-            className="w-full min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300 prose-reader font-plex"
-            style={{ lineHeight: 1.8 }}
+            onMouseUp={captureEditorSelection}
+            onKeyUp={captureEditorSelection}
+            onTouchEnd={captureEditorSelection}
+            className="w-full min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl bg-cream-100 border border-cream-200 focus:outline-none focus:ring-2 focus:ring-terracotta-300 prose-reader font-plex"
+            style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
           />
         </div>
 
@@ -630,8 +751,8 @@ function ChapterEditor({
         {showPreview && (
           <div className="bg-white rounded-xl p-4 border border-cream-200 max-h-60 overflow-y-auto">
             <div
-              className="prose-reader font-plex text-sm"
-              style={{ lineHeight: 1.8 }}
+              className="prose-reader font-plex"
+              style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
               dangerouslySetInnerHTML={{ __html: currentContent }}
             />
           </div>
@@ -806,6 +927,8 @@ function ReaderPreview({
         <div className="flex items-center gap-1">
           <button
             onClick={() => setFontSize(fontSize - 2)}
+            disabled={fontSize <= 14}
+            aria-label="ลดขนาดตัวอักษรตัวอย่าง"
             className="w-8 h-8 rounded-full bg-cream-200 text-charcoal flex items-center justify-center text-xs"
           >
             A-
@@ -813,6 +936,8 @@ function ReaderPreview({
           <span className="text-xs font-bold w-6 text-center">{fontSize}</span>
           <button
             onClick={() => setFontSize(fontSize + 2)}
+            disabled={fontSize >= 28}
+            aria-label="เพิ่มขนาดตัวอักษรตัวอย่าง"
             className="w-8 h-8 rounded-full bg-cream-200 text-charcoal flex items-center justify-center text-xs"
           >
             A+

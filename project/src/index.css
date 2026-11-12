@@ -59,6 +59,9 @@
     margin-bottom: 1.25em;
     line-height: 2;
   }
+  .prose-reader :not(h1):not(h2):not([data-reader-font-scale]) {
+    font-size: inherit !important;
+  }
   .prose-reader h1 {
     font-size: 1.6em;
     font-weight: 700;

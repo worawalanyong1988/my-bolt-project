@@ -314,6 +314,8 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setFontSize(state.fontSize - 2)}
+                  disabled={state.fontSize <= 14}
+                  aria-label="ลดขนาดตัวอักษร"
                   className="w-9 h-9 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition"
                 >
                   <Minus size={16} />
@@ -321,6 +323,8 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                 <span className="text-sm font-bold w-8 text-center">{state.fontSize}</span>
                 <button
                   onClick={() => setFontSize(state.fontSize + 2)}
+                  disabled={state.fontSize >= 28}
+                  aria-label="เพิ่มขนาดตัวอักษร"
                   className="w-9 h-9 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition"
                 >
                   <Plus size={16} />

@@ -5,6 +5,7 @@ import { Cover } from '@/components/Cover';
 import { Badge } from '@/components/Badge';
 import { Modal } from '@/components/Modal';
 import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
+import { TermsModal } from '@/components/TermsModal';
 import { formatCount } from '@/utils/formatCount';
 import { translateText } from '@/utils/translate';
 import {
@@ -32,6 +33,8 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
   const { getStory, isBookmarked, toggleBookmark, toggleLike, state, recordStoryView, authUser } = useApp();
   const { navigate, back } = useRouter();
   const [showPaywall, setShowPaywall] = useState(false);
+  const [showVipTerms, setShowVipTerms] = useState(false);
+  const [acceptedVipTerms, setAcceptedVipTerms] = useState(false);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
@@ -39,6 +42,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
   const [translatedIntro, setTranslatedIntro] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
   const viewedStoryIdRef = useRef<string | null>(null);
+  const vipCheckoutAvailable = false;
 
   const story = getStory(storyId);
 
@@ -103,6 +107,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
 
   const handleChapterClick = (chapterId: string, isVIP: boolean) => {
     if (isVIP && !state.isVIP) {
+      setAcceptedVipTerms(false);
       setShowPaywall(true);
       return;
     }
@@ -390,13 +395,43 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
             <VipLoyaltyBanner coins={state.coins} />
           </div>
 
-          <button
-            type="button"
-            disabled
-            className="mt-5 w-full rounded-2xl bg-cream-200 py-3 text-sm font-bold text-charcoal-muted"
-          >
-            ยังไม่เปิดระบบสมัคร VIP และชำระเงินจริง
-          </button>
+          <div className="mt-5 text-left">
+            <div className="flex items-start gap-2 rounded-xl border border-cream-200 bg-white p-3 text-xs leading-relaxed text-charcoal">
+              <input
+                id="accept-vip-terms"
+                type="checkbox"
+                checked={acceptedVipTerms}
+                onChange={(event) => setAcceptedVipTerms(event.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-terracotta-500"
+              />
+              <div>
+                <label htmlFor="accept-vip-terms">ข้าพเจ้าได้อ่านและยอมรับ </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPaywall(false);
+                    setShowVipTerms(true);
+                  }}
+                  className="font-semibold text-terracotta-600 underline underline-offset-2"
+                >
+                  เงื่อนไขการสมัครสมาชิก VIP นโยบายการคืนเงิน และกฎการใช้งาน
+                </button>
+                <label htmlFor="accept-vip-terms"> แอป Aksara เรียบร้อยแล้ว</label>
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={!acceptedVipTerms || !vipCheckoutAvailable}
+              className="mt-3 w-full rounded-2xl bg-terracotta-500 py-3 text-sm font-bold text-white transition hover:bg-terracotta-600 disabled:cursor-not-allowed disabled:bg-cream-200 disabled:text-charcoal-muted"
+            >
+              ยืนยันการชำระเงิน
+            </button>
+            {!vipCheckoutAvailable && (
+              <p className="mt-2 text-center text-[10px] text-charcoal-muted" role="status">
+                ระบบสมัคร VIP และชำระเงินจริงยังไม่เปิดใช้งาน
+              </p>
+            )}
+          </div>
           <button
             onClick={() => setShowPaywall(false)}
             className="mt-2 w-full text-charcoal-muted text-sm py-2 hover:text-charcoal transition"
@@ -405,6 +440,19 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
           </button>
         </div>
       </Modal>
+      <TermsModal
+        open={showVipTerms}
+        onClose={() => {
+          setShowVipTerms(false);
+          setShowPaywall(true);
+        }}
+        initialTab="vip"
+        onAccept={() => {
+          setAcceptedVipTerms(true);
+          setShowVipTerms(false);
+          setShowPaywall(true);
+        }}
+      />
     </div>
   );
 }

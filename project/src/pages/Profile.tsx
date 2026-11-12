@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Modal } from '@/components/Modal';
+import { TermsModal, type TermsTab } from '@/components/TermsModal';
 import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import type { FontFamily, ReadingTheme } from '@/types';
 import { uploadProfileAvatar } from '@/services/profileStorage';
@@ -42,6 +43,9 @@ export function Profile() {
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [termsTab, setTermsTab] = useState<TermsTab>('general');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
@@ -130,6 +134,10 @@ export function Profile() {
     setProfileMessage(null);
     try {
       if (authMode === 'sign-up') {
+        if (!acceptedTerms) {
+          setProfileError('กรุณายอมรับข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัว');
+          return;
+        }
         const result = await signUp(authEmail.trim(), authPassword, displayName);
         setAuthPassword('');
         setProfileMessage(result === 'email-confirmation-required'
@@ -233,10 +241,42 @@ export function Profile() {
               <button type="submit" disabled={authBusy || authLoading} className="flex-1 rounded-xl bg-terracotta-500 py-2.5 text-sm font-bold text-white disabled:opacity-50">
                 {authBusy ? 'กำลังดำเนินการ...' : authMode === 'sign-in' ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก'}
               </button>
-              <button type="button" onClick={() => setAuthMode(authMode === 'sign-in' ? 'sign-up' : 'sign-in')} className="rounded-xl bg-cream-100 px-3 py-2.5 text-xs font-semibold text-charcoal">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'sign-in' ? 'sign-up' : 'sign-in');
+                  setAcceptedTerms(false);
+                }}
+                className="rounded-xl bg-cream-100 px-3 py-2.5 text-xs font-semibold text-charcoal"
+              >
                 {authMode === 'sign-in' ? 'สร้างบัญชี' : 'มีบัญชีแล้ว'}
               </button>
             </div>
+            {authMode === 'sign-up' && (
+              <div className="flex items-start gap-2 text-xs leading-relaxed text-charcoal-muted">
+                <input
+                  id="accept-terms"
+                  type="checkbox"
+                  required
+                  checked={acceptedTerms}
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-terracotta-500"
+                />
+                <div>
+                  <label htmlFor="accept-terms">ยอมรับ </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTermsTab('general');
+                      setTermsOpen(true);
+                    }}
+                    className="font-semibold text-terracotta-600 underline underline-offset-2"
+                  >
+                    ข้อตกลงการใช้งานและนโยบายความเป็นส่วนตัว
+                  </button>
+                </div>
+              </div>
+            )}
           </form>
         )}
         {profileMessage && <p className="mt-2 text-xs text-emerald-700" role="status">{profileMessage}</p>}
@@ -466,6 +506,15 @@ export function Profile() {
           onClick={() => setActivePanel('help')}
         />
         <MenuItem
+          icon={<ReceiptText size={20} />}
+          label="ข้อตกลงการใช้งานและเงื่อนไข VIP"
+          subtitle="อ่านข้อกำหนดและนโยบายคอยน์"
+          onClick={() => {
+            setTermsTab('general');
+            setTermsOpen(true);
+          }}
+        />
+        <MenuItem
           icon={<Settings size={20} />}
           label="ตั้งค่า"
           onClick={() => setActivePanel('settings')}
@@ -639,6 +688,11 @@ export function Profile() {
           </div>
         )}
       </Modal>
+      <TermsModal
+        open={termsOpen}
+        onClose={() => setTermsOpen(false)}
+        initialTab={termsTab}
+      />
     </div>
   );
 }

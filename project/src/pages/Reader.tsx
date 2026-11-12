@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/useApp';
 import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
+import { TermsModal } from '@/components/TermsModal';
 import { useRouter } from '@/router';
 import { STICKERS, ART_STICKERS, DONATION_STICKERS } from '@/mockData';
 import { translateText } from '@/utils/translate';
@@ -69,6 +70,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     authUser,
   } = useApp();
   const { navigate } = useRouter();
+  const [showVipTerms, setShowVipTerms] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showChapterList, setShowChapterList] = useState(false);
   const [stickerTab, setStickerTab] = useState<'emoji' | 'art'>('emoji');
@@ -400,6 +402,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               <Crown size={16} className="inline mr-1" />
               สมัคร VIP ยังไม่เปิดใช้งาน
             </button>
+            <p className="mt-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowVipTerms(true)}
+                className="font-semibold text-terracotta-600 underline underline-offset-2"
+              >
+                เงื่อนไขการสมัคร VIP และนโยบายการคืนเงิน
+              </button>
+            </p>
             <p className="mt-3 text-[10px] text-charcoal-muted">สถานะ VIP ปรับได้หลังยืนยันการชำระเงินจริงผ่านระบบหลังบ้านเท่านั้น</p>
           </div>
         ) : (
@@ -836,6 +847,11 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
           </div>
         )}
       </Modal>
+      <TermsModal
+        open={showVipTerms}
+        onClose={() => setShowVipTerms(false)}
+        initialTab="vip"
+      />
     </div>
   );
 }

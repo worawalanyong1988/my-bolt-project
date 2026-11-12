@@ -97,7 +97,7 @@ function AppContent() {
       case 'bookshelf':
         return <Bookshelf />;
       case 'story':
-        return <StoryDetail storyId={route.storyId} onTagSelect={handleTagSelect} />;
+        return <StoryDetail storyId={route.storyId} chapterId={route.chapterId} onTagSelect={handleTagSelect} />;
       case 'reader':
         return <Reader key={`${route.storyId}:${route.chapterId}`} storyId={route.storyId} chapterId={route.chapterId} />;
       case 'profile':

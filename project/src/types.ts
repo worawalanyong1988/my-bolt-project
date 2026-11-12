@@ -33,6 +33,7 @@ export interface Chapter {
   access: ChapterAccess;
   status: StoryStatus;
   readCount: number;
+  wordCount?: number;
   createdAt: number;
 }
 

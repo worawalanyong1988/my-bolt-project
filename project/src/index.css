@@ -161,3 +161,72 @@
 .animate-fade-in { animation: fadeIn 0.3s ease; }
 .animate-slide-up { animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 .animate-slide-down { animation: slideDown 0.25s ease; }
+
+.protected-story-content,
+.protected-story-content * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.protected-story-content {
+  position: relative;
+}
+
+.protected-story-content::after {
+  content: '© Aksara · สงวนลิขสิทธิ์';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  color: currentColor;
+  font-size: clamp(1.25rem, 5vw, 2.5rem);
+  font-weight: 700;
+  opacity: 0.07;
+  pointer-events: none;
+  white-space: nowrap;
+  transform: translate(-50%, -50%) rotate(-24deg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reader-content-hidden {
+  visibility: hidden;
+}
+
+.reader-focus-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(251, 249, 245, 0.96);
+  color: #2b2b2b;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.reader-print-notice {
+  display: none;
+}
+
+@media print {
+  .protected-story-content {
+    display: none !important;
+  }
+
+  .reader-focus-overlay,
+  .reader-protection-toast {
+    display: none !important;
+  }
+
+  .reader-print-notice {
+    display: block !important;
+    color: #2b2b2b;
+    font-size: 1rem;
+    text-align: center;
+  }
+}

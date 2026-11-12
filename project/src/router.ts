@@ -4,15 +4,16 @@ export type Route =
   | { name: 'home' }
   | { name: 'bookshelf' }
   | { name: 'profile' }
-  | { name: 'story'; storyId: string }
+  | { name: 'story'; storyId: string; chapterId?: string }
   | { name: 'reader'; storyId: string; chapterId: string }
   | { name: 'studio' }
   | { name: 'studio-statistics' }
   | { name: 'studio-story'; storyId: string };
 
 function parseHash(): Route {
-  const hash = window.location.hash.replace(/^#/, '');
-  const parts = hash.split('/').filter(Boolean);
+  const [path, query = ''] = window.location.hash.replace(/^#/, '').split('?');
+  const parts = path.split('/').filter(Boolean);
+  const params = new URLSearchParams(query);
 
   if (parts.length === 0) return { name: 'home' };
   if (parts[0] === 'bookshelf') return { name: 'bookshelf' };
@@ -22,7 +23,10 @@ function parseHash(): Route {
     return { name: 'studio-statistics' };
   if (parts[0] === 'studio' && parts[1] === 'story' && parts[2])
     return { name: 'studio-story', storyId: parts[2] };
-  if (parts[0] === 'story' && parts[1]) return { name: 'story', storyId: parts[1] };
+  if (parts[0] === 'story' && parts[1]) {
+    const chapterId = params.get('chapter');
+    return { name: 'story', storyId: parts[1], ...(chapterId ? { chapterId } : {}) };
+  }
   if (parts[0] === 'reader' && parts[1] && parts[2])
     return { name: 'reader', storyId: parts[1], chapterId: parts[2] };
   return { name: 'home' };
@@ -43,7 +47,9 @@ function routeToHash(route: Route): string {
     case 'studio-story':
       return `#/studio/story/${route.storyId}`;
     case 'story':
-      return `#/story/${route.storyId}`;
+      return route.chapterId
+        ? `#/story/${route.storyId}?chapter=${encodeURIComponent(route.chapterId)}`
+        : `#/story/${route.storyId}`;
     case 'reader':
       return `#/reader/${route.storyId}/${route.chapterId}`;
   }

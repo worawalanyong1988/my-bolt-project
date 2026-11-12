@@ -7,6 +7,7 @@ import { Modal } from '@/components/Modal';
 import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import { TermsModal } from '@/components/TermsModal';
 import { formatCount } from '@/utils/formatCount';
+import { shareLink } from '@/utils/shareLink';
 import { translateText } from '@/utils/translate';
 import {
   Bookmark,
@@ -20,21 +21,25 @@ import {
   ChevronDown,
   ChevronUp,
   Play,
+  Share2,
   Languages,
   Loader2,
 } from 'lucide-react';
 
 interface StoryDetailProps {
   storyId: string;
+  chapterId?: string;
   onTagSelect: (tag: string) => void;
 }
 
-export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
+export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProps) {
   const { getStory, isBookmarked, toggleBookmark, toggleLike, state, recordStoryView, authUser } = useApp();
   const { navigate, back } = useRouter();
   const [showPaywall, setShowPaywall] = useState(false);
   const [showVipTerms, setShowVipTerms] = useState(false);
   const [acceptedVipTerms, setAcceptedVipTerms] = useState(false);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
@@ -42,6 +47,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
   const [translatedIntro, setTranslatedIntro] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
   const viewedStoryIdRef = useRef<string | null>(null);
+  const handledChapterLinkRef = useRef<string | null>(null);
   const vipCheckoutAvailable = false;
 
   const story = getStory(storyId);
@@ -52,6 +58,42 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
       recordStoryView(story.id);
     }
   }, [story, recordStoryView]);
+
+  useEffect(() => {
+    if (!chapterId || !story || story.status !== 'published') return;
+    const targetChapter = story.chapters.find((chapter) => chapter.id === chapterId);
+    if (!targetChapter || targetChapter.status !== 'published') return;
+    if (targetChapter.access === 'vip' && !state.isVIP) {
+      setAcceptedVipTerms(false);
+      setShowPaywall(true);
+      return;
+    }
+
+    const linkKey = `${story.id}:${targetChapter.id}`;
+    if (handledChapterLinkRef.current === linkKey) return;
+    handledChapterLinkRef.current = linkKey;
+    navigate({ name: 'reader', storyId: story.id, chapterId: targetChapter.id });
+  }, [chapterId, navigate, state.isVIP, story]);
+
+  const handleShare = async () => {
+    if (!story) return;
+    setShareMessage(null);
+    setShareError(null);
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = `#/story/${encodeURIComponent(story.id)}`;
+    try {
+      const result = await shareLink({
+        title: story.title,
+        text: `อ่านเรื่อง ${story.title} โดย ${story.penName} บน Aksara`,
+        url: url.href,
+      });
+      setShareMessage(result === 'shared' ? 'เปิดเมนูแชร์แล้ว' : 'คัดลอกข้อความและลิงก์นิยายแล้ว');
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      setShareError(error instanceof Error ? error.message : 'แชร์ลิงก์นิยายไม่สำเร็จ');
+    }
+  };
 
   const isEn = !!translatedSynopsis;
 
@@ -218,6 +260,15 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
             {bookmarked ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
             {bookmarked ? 'เก็บแล้ว' : 'เก็บ'}
           </button>
+          <button
+            type="button"
+            onClick={() => void handleShare()}
+            aria-label="แชร์นิยาย"
+            className="flex items-center justify-center gap-2 rounded-2xl border border-cream-200 bg-cream-100 px-4 py-3 text-sm font-semibold text-charcoal transition hover:bg-cream-200 active:scale-95"
+          >
+            <Share2 size={18} />
+            แชร์
+          </button>
           {firstChapter && (
             <button
               onClick={() => handleChapterClick(firstChapter.id, firstChapter.access === 'vip')}
@@ -228,6 +279,8 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
             </button>
           )}
         </div>
+        {shareMessage && <p className="mt-2 text-xs text-emerald-700" role="status">{shareMessage}</p>}
+        {shareError && <p className="mt-2 text-xs text-red-600" role="alert">{shareError}</p>}
 
         {/* Synopsis */}
         <div className="mt-6">
@@ -331,9 +384,11 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
                           VIP
                         </Badge>
                       )}
-                      <span className="text-[10px] text-charcoal-muted">
-                        {wordCount(chapter.content)} คำ
-                      </span>
+                      {(chapter.wordCount !== undefined || chapter.content) && (
+                        <span className="text-[10px] text-charcoal-muted">
+                          {chapter.wordCount ?? wordCount(chapter.content)} คำ
+                        </span>
+                      )}
                       <span className="inline-flex items-center gap-0.5 text-[10px] text-charcoal-muted">
                         <Eye size={11} />
                         {formatCount(chapter.readCount)}

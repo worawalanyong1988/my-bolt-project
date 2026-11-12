@@ -5,6 +5,7 @@ import { Modal } from '@/components/Modal';
 import { Badge } from '@/components/Badge';
 import { Cover } from '@/components/Cover';
 import { StoryForm } from '@/pages/Studio';
+import { loadChapterContentRemote } from '@/services/supabaseData';
 import type { Chapter, ChapterAccess, StoryStatus, ReadingTheme, FontFamily, Story } from '@/types';
 import {
   Plus,
@@ -46,6 +47,8 @@ export function StudioStory({ storyId }: { storyId: string }) {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showStoryForm, setShowStoryForm] = useState(false);
+  const [chapterLoadError, setChapterLoadError] = useState<string | null>(null);
+  const [loadingChapterId, setLoadingChapterId] = useState<string | null>(null);
 
   const story = getStory(storyId);
 
@@ -67,9 +70,18 @@ export function StudioStory({ storyId }: { storyId: string }) {
     setShowEditor(true);
   };
 
-  const openEditChapter = (ch: Chapter) => {
-    setEditingChapter(ch);
-    setShowEditor(true);
+  const openEditChapter = async (ch: Chapter) => {
+    setChapterLoadError(null);
+    setLoadingChapterId(ch.id);
+    try {
+      const content = ch.content || await loadChapterContentRemote(ch.id);
+      setEditingChapter({ ...ch, content });
+      setShowEditor(true);
+    } catch (error) {
+      setChapterLoadError(error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ');
+    } finally {
+      setLoadingChapterId(null);
+    }
   };
 
   const handleSaveChapter = (ch: Chapter) => {
@@ -214,9 +226,11 @@ export function StudioStory({ storyId }: { storyId: string }) {
                 ) : (
                   <Badge variant="vip">VIP</Badge>
                 )}
-                <span className="text-[10px] text-charcoal-muted">
-                  {wordCount(chapter.content)} คำ
-                </span>
+                {(chapter.wordCount !== undefined || chapter.content) && (
+                  <span className="text-[10px] text-charcoal-muted">
+                    {chapter.wordCount ?? wordCount(chapter.content)} คำ
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex flex-col gap-0.5">
@@ -236,10 +250,13 @@ export function StudioStory({ storyId }: { storyId: string }) {
               </button>
             </div>
             <button
-              onClick={() => openEditChapter(chapter)}
-              className="text-charcoal-muted hover:text-terracotta-500 transition"
+              type="button"
+              onClick={() => void openEditChapter(chapter)}
+              disabled={loadingChapterId !== null}
+              className="text-charcoal-muted hover:text-terracotta-500 transition disabled:opacity-50"
+              aria-label={`แก้ไข ${chapter.title}`}
             >
-              <Pencil size={16} />
+              {loadingChapterId === chapter.id ? 'กำลังโหลด...' : <Pencil size={16} />}
             </button>
             <button
               onClick={() => setDeleteConfirm(chapter.id)}
@@ -250,6 +267,12 @@ export function StudioStory({ storyId }: { storyId: string }) {
           </div>
         ))}
       </div>
+
+      {chapterLoadError && (
+        <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+          โหลดเนื้อหาตอนไม่สำเร็จ: {chapterLoadError}
+        </p>
+      )}
 
       {chapters.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -911,9 +934,56 @@ function ReaderPreview({
 }) {
   const { setReadingTheme, setFontFamily, setFontSize } = useApp();
   const [selectedChapterId, setSelectedChapterId] = useState(
-    story.chapters.sort((a, b) => a.number - b.number)[0]?.id,
+    [...story.chapters].sort((a, b) => a.number - b.number)[0]?.id,
   );
   const chapter = story.chapters.find((c) => c.id === selectedChapterId);
+  const [previewState, setPreviewState] = useState<{
+    chapterId: string;
+    content: string;
+    loading: boolean;
+    error: string | null;
+  }>({ chapterId: '', content: '', loading: false, error: null });
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedChapterId) {
+      setPreviewState({ chapterId: '', content: '', loading: false, error: null });
+      return () => {
+        active = false;
+      };
+    }
+
+    if (chapter?.content) {
+      setPreviewState({ chapterId: selectedChapterId, content: chapter.content, loading: false, error: null });
+      return () => {
+        active = false;
+      };
+    }
+
+    setPreviewState({ chapterId: selectedChapterId, content: '', loading: true, error: null });
+    void loadChapterContentRemote(selectedChapterId)
+      .then((content) => {
+        if (active) setPreviewState({ chapterId: selectedChapterId, content, loading: false, error: null });
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setPreviewState({
+            chapterId: selectedChapterId,
+            content: '',
+            loading: false,
+            error: error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ',
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [chapter?.content, selectedChapterId]);
+
+  const previewContent = previewState.chapterId === selectedChapterId ? previewState.content : '';
+  const previewLoading = previewState.chapterId === selectedChapterId && previewState.loading;
+  const previewError = previewState.chapterId === selectedChapterId ? previewState.error : null;
 
   const themeClass =
     readingTheme === 'sepia' ? 'theme-sepia' : readingTheme === 'night' ? 'theme-night' : '';
@@ -989,11 +1059,15 @@ function ReaderPreview({
               <p className="text-xs text-charcoal-muted mb-4">
                 {story.title} · โดย {story.penName}
               </p>
-              <div
-                className={`prose-reader ${fontClass}`}
-                style={{ fontSize: `${fontSize}px`, lineHeight: 1.8 }}
-                dangerouslySetInnerHTML={{ __html: chapter.content }}
-              />
+              {previewLoading && <p className="py-12 text-center text-sm text-charcoal-muted">กำลังโหลดเนื้อหาตอน...</p>}
+              {previewError && <p role="alert" className="py-12 text-center text-sm text-red-600">โหลดเนื้อหาตอนไม่สำเร็จ: {previewError}</p>}
+              {!previewLoading && !previewError && (
+                <div
+                  className={`prose-reader ${fontClass}`}
+                  style={{ fontSize: `${fontSize}px`, lineHeight: 1.8 }}
+                  dangerouslySetInnerHTML={{ __html: previewContent }}
+                />
+              )}
             </div>
           ) : (
             <p className="text-sm text-charcoal-muted text-center py-20">ยังไม่มีตอน</p>
@@ -1008,7 +1082,7 @@ function ReaderPreview({
           onChange={(e) => setSelectedChapterId(e.target.value)}
           className="w-full px-3 py-2 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
         >
-          {story.chapters
+          {[...story.chapters]
             .sort((a, b) => a.number - b.number)
             .map((ch) => (
               <option key={ch.id} value={ch.id}>

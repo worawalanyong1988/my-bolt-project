@@ -46,12 +46,14 @@ type ProfileRow = {
 };
 
 function getChapterMetadata(chapter: Chapter): Omit<Chapter, 'content' | 'readCount'> {
+  const text = chapter.content.replace(/<[^>]+>/g, ' ').trim();
   return {
     id: chapter.id,
     number: chapter.number,
     title: chapter.title,
     access: chapter.access,
     status: chapter.status,
+    wordCount: text ? text.split(/\s+/).filter(Boolean).length : 0,
     createdAt: chapter.createdAt,
   };
 }
@@ -137,10 +139,9 @@ export function getEmptyAppState(): AppState {
 export async function loadRemoteState(user: User | null): Promise<{ state: AppState; isWriter: boolean }> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const client = supabaseClient;
-  const [storyRows, chapterRows, chapterContentRows, commentRows, tipRows] = await Promise.all([
+  const [storyRows, chapterRows, commentRows, tipRows] = await Promise.all([
     loadAllRows<StoryRow>((start, end) => client.from('stories').select('*').order('updated_at', { ascending: false }).range(start, end)),
     loadAllRows<ChapterRow>((start, end) => client.from('chapters').select('*').order('number', { ascending: true }).range(start, end)),
-    loadAllRows<{ chapter_id: string; content: string }>((start, end) => client.from('chapter_contents').select('chapter_id,content').range(start, end)),
     loadAllRows<CommentRow>((start, end) => client.from('comments').select('*').order('created_at', { ascending: false }).range(start, end)),
     loadAllRows<TipRow>((start, end) => client.from('tips').select('*').order('created_at', { ascending: false }).range(start, end)),
   ]);
@@ -280,7 +281,6 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
       .range(start, end))
     : [];
 
-  const contentByChapter = new Map<string, string>(chapterContentRows.map((row) => [row.chapter_id, row.content]));
   const chaptersByStory = new Map<string, Chapter[]>();
   for (const row of chapterRows) {
     const chapter = {
@@ -290,7 +290,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
       status: row.status,
       access: row.access,
       readCount: row.read_count,
-      content: contentByChapter.get(row.id) ?? '',
+      content: '',
     };
     chaptersByStory.set(row.story_id, [...(chaptersByStory.get(row.story_id) ?? []), chapter]);
   }
@@ -390,6 +390,18 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   };
 }
 
+export async function loadChapterContentRemote(chapterId: string): Promise<string> {
+  if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+  const result = await supabaseClient
+    .from('chapter_contents')
+    .select('content')
+    .eq('chapter_id', chapterId)
+    .maybeSingle();
+  throwOnError(result.error);
+  if (!result.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
+  return result.data.content;
+}
+
 export async function saveStoryRemote(story: Story, userId: string): Promise<void> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const { chapters, horizontalCoverUrl, ...data } = story;
@@ -432,6 +444,7 @@ export async function saveStoryRemote(story: Story, userId: string): Promise<voi
 export async function saveChapterRemote(storyId: string, chapter: Chapter): Promise<void> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const { readCount, content, ...data } = chapter;
+  const text = content.replace(/<[^>]+>/g, ' ').trim();
   const result = await supabaseClient.from('chapters').upsert({
     id: chapter.id,
     story_id: storyId,
@@ -439,7 +452,7 @@ export async function saveChapterRemote(storyId: string, chapter: Chapter): Prom
     status: chapter.status,
     access: chapter.access,
     read_count: readCount,
-    data,
+    data: { ...data, wordCount: text ? text.split(/\s+/).filter(Boolean).length : 0 },
     created_at: chapter.createdAt,
   });
   throwOnError(result.error);

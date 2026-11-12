@@ -1,11 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '@/useApp';
 import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import { TermsModal } from '@/components/TermsModal';
+import { loadChapterContentRemote } from '@/services/supabaseData';
 import { useRouter } from '@/router';
 import { STICKERS, ART_STICKERS, DONATION_STICKERS } from '@/mockData';
 import { translateText } from '@/utils/translate';
 import { formatCount } from '@/utils/formatCount';
+import { shareLink } from '@/utils/shareLink';
 import type { ReadingTheme, FontFamily, Comment, PaymentMethod } from '@/types';
 import { Modal } from '@/components/Modal';
 import {
@@ -32,6 +34,7 @@ import {
   QrCode,
   Wallet,
   List,
+  Share2,
 } from 'lucide-react';
 
 interface ReaderProps {
@@ -87,12 +90,126 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   const [translationError, setTranslationError] = useState<string | null>(null);
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
+  const [chapterContent, setChapterContent] = useState('');
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [windowFocused, setWindowFocused] = useState(true);
+  const [protectionNotice, setProtectionNotice] = useState<string | null>(null);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const protectionNoticeTimeout = useRef<number | null>(null);
   const viewedChapterKeyRef = useRef<string | null>(null);
   const viewedStoryIdRef = useRef<string | null>(null);
 
   const story = getStory(storyId);
   const chapter = getChapter(storyId, chapterId);
+  const chapterIdToLoad = chapter?.id;
+  const chapterAccess = chapter?.access;
+
+  const showProtectionNotice = useCallback(() => {
+    setProtectionNotice('ขออภัย เนื้อหานิยายนี้ได้รับการคุ้มครองลิขสิทธิ์ ไม่อนุญาตให้คัดลอกหรือทำซ้ำ');
+    if (protectionNoticeTimeout.current !== null) {
+      window.clearTimeout(protectionNoticeTimeout.current);
+    }
+    protectionNoticeTimeout.current = window.setTimeout(() => setProtectionNotice(null), 3000);
+  }, []);
+
+  const handleShare = async () => {
+    setShareMessage(null);
+    setShareError(null);
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = `#/story/${encodeURIComponent(storyId)}?chapter=${encodeURIComponent(chapterId)}`;
+    try {
+      const result = await shareLink({
+        title: `${chapter?.title ?? 'ตอนนิยาย'} | ${story?.title ?? 'Aksara'}`,
+        text: `อ่านตอน ${chapter?.title ?? ''} จากเรื่อง ${story?.title ?? ''} บน Aksara`,
+        url: url.href,
+      });
+      setShareMessage(result === 'shared' ? 'เปิดเมนูแชร์แล้ว' : 'คัดลอกข้อความและลิงก์รายตอนแล้ว');
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      setShareError(error instanceof Error ? error.message : 'แชร์ลิงก์ตอนนิยายไม่สำเร็จ');
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    setChapterContent('');
+    setContentError(null);
+    setTranslatedContent(null);
+    setTranslatedTitle(null);
+
+    if (!chapterIdToLoad || (chapterAccess === 'vip' && !state.isVIP)) {
+      setContentLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setContentLoading(true);
+    void loadChapterContentRemote(chapterIdToLoad)
+      .then((content) => {
+        if (active) setChapterContent(content);
+      })
+      .catch((error: unknown) => {
+        if (active) setContentError(error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ');
+      })
+      .finally(() => {
+        if (active) setContentLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authUser?.id, chapterAccess, chapterIdToLoad, state.isVIP]);
+
+  useEffect(() => {
+    const handleBlur = () => setWindowFocused(false);
+    const handleFocus = () => setWindowFocused(true);
+    const handleVisibilityChange = () => setWindowFocused(document.visibilityState === 'visible');
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (protectionNoticeTimeout.current !== null) {
+      window.clearTimeout(protectionNoticeTimeout.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const hasModifier = event.ctrlKey || event.metaKey;
+      const target = event.target;
+      const isEditable = target instanceof HTMLElement
+        && (target.isContentEditable || target.matches('input, textarea, select'));
+      const copyShortcuts = ['c', 'x', 'a'];
+      if (isEditable && hasModifier && copyShortcuts.includes(key)) return;
+
+      const blockedShortcut =
+        (hasModifier && ['c', 'x', 'a', 's', 'u', 'p'].includes(key))
+        || event.key === 'F12'
+        || (hasModifier && event.shiftKey && key === 'i')
+        || (event.metaKey && event.altKey && key === 'i');
+      if (!blockedShortcut) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (hasModifier && copyShortcuts.includes(key)) showProtectionNotice();
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [showProtectionNotice]);
 
   useEffect(() => {
     const viewKey = story && chapter ? `${story.id}:${chapter.id}` : null;
@@ -239,13 +356,17 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
       setTranslatedTitle(null);
       return;
     }
+    if (!chapterContent) {
+      setTranslationError('เนื้อหาตอนนี้ยังไม่พร้อมให้แปล');
+      return;
+    }
     setTranslating(true);
     try {
       const [content, title] = await Promise.all([
-        translateText(chapter.content, 'th', 'en'),
+        translateText(chapterContent, 'th', 'en'),
         translateText(chapter.title, 'th', 'en'),
       ]);
-      if (content === chapter.content && title === chapter.title) {
+      if (content === chapterContent && title === chapter.title) {
         setTranslationError('แปลภาษาไม่สำเร็จในขณะนี้ ลองอีกครั้งภายหลัง');
         return;
       }
@@ -259,7 +380,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   };
 
   const displayTitle = translatedTitle || chapter.title;
-  const displayContent = translatedContent || chapter.content;
+  const displayContent = translatedContent ?? chapterContent;
 
   return (
     <div className={`min-h-screen ${themeClass} ${themeClass ? '' : 'bg-cream-50'}`}>
@@ -284,8 +405,16 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
           </button>
           <div className="flex items-center gap-1">
             <button
+              type="button"
+              onClick={() => void handleShare()}
+              aria-label="แชร์ลิงก์ตอนนี้"
+              className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition"
+            >
+              <Share2 size={18} />
+            </button>
+            <button
               onClick={handleTranslate}
-              disabled={translating}
+              disabled={translating || contentLoading || (!chapterContent && !translatedContent)}
               className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition disabled:opacity-50"
               title="แปลภาษา"
             >
@@ -303,6 +432,14 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
             </button>
           </div>
         </div>
+        {(shareMessage || shareError) && (
+          <p
+            className={`mx-auto max-w-2xl px-4 pb-2 text-xs ${shareError ? 'text-red-600' : 'text-emerald-700'}`}
+            role={shareError ? 'alert' : 'status'}
+          >
+            {shareError ?? shareMessage}
+          </p>
+        )}
 
         {/* Settings panel */}
         {showSettings && (
@@ -433,11 +570,46 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
             {translationError && (
               <p className="mb-4 text-xs text-red-500" role="alert">{translationError}</p>
             )}
-            <div
-              className={`prose-reader ${fontClass}`}
-              style={{ fontSize: `${state.fontSize}px`, lineHeight: 2 }}
-              dangerouslySetInnerHTML={{ __html: displayContent }}
-            />
+            <div className="relative">
+              {contentLoading && (
+                <p className="py-12 text-center text-sm text-charcoal-muted" role="status">
+                  กำลังโหลดเนื้อหาตอนนี้...
+                </p>
+              )}
+              {contentError && (
+                <p className="py-12 text-center text-sm text-red-600" role="alert">
+                  โหลดเนื้อหาตอนไม่สำเร็จ: {contentError}
+                </p>
+              )}
+              {!contentLoading && !contentError && chapterContent && (
+                <div
+                  className={`protected-story-content prose-reader ${fontClass} ${windowFocused ? '' : 'reader-content-hidden'}`}
+                  style={{ fontSize: `${state.fontSize}px`, lineHeight: 2 }}
+                  onCopy={(event) => {
+                    event.preventDefault();
+                    showProtectionNotice();
+                  }}
+                  onCut={(event) => {
+                    event.preventDefault();
+                    showProtectionNotice();
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    showProtectionNotice();
+                  }}
+                  onDragStart={(event) => event.preventDefault()}
+                  dangerouslySetInnerHTML={{ __html: displayContent }}
+                />
+              )}
+              {!windowFocused && !contentLoading && !contentError && chapterContent && (
+                <div className="reader-focus-overlay" role="status">
+                  เนื้อหาถูกซ่อนเมื่อหน้าต่างไม่อยู่ในโฟกัส
+                </div>
+              )}
+              <p className="reader-print-notice" aria-hidden="true">
+                เนื้อหานิยายนี้ได้รับการคุ้มครองลิขสิทธิ์ © Aksara
+              </p>
+            </div>
 
             {/* Chapter navigation */}
             <div className="flex items-center justify-between mt-10 pt-6 border-t border-current/10">
@@ -852,6 +1024,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
         onClose={() => setShowVipTerms(false)}
         initialTab="vip"
       />
+      {protectionNotice && (
+        <div
+          className="reader-protection-toast fixed bottom-6 left-1/2 z-[120] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-xl bg-charcoal px-4 py-3 text-center text-xs font-medium text-white shadow-xl"
+          role="alert"
+          aria-live="assertive"
+        >
+          {protectionNotice}
+        </div>
+      )}
     </div>
   );
 }

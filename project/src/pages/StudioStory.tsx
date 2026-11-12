@@ -587,8 +587,10 @@ function ChapterEditor({
     const paragraphs = pastedText
       .replace(/\r\n?/g, '\n')
       .split('\n')
+      .filter((line) => line.trim().length > 0)
       .map((line) => `<p>${escapeHtml(line) || '<br>'}</p>`)
       .join('');
+    if (!paragraphs) return;
     document.execCommand('insertHTML', false, paragraphs);
     normalizeEditorParagraphs(editor);
     markContentChanged();

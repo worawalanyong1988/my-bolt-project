@@ -64,6 +64,8 @@
     font-size: inherit !important;
   }
   .chapter-editor.prose-reader p {
+    margin-bottom: 1.25em;
+    line-height: 1.8;
     text-indent: 0;
   }
   .chapter-editor.auto-indent p:not([data-manual-indent='off']),

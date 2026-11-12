@@ -679,7 +679,9 @@ export function StoryForm({
               >
                 <img
                   src={templateOrientation === 'portrait' ? template.portraitUrl : template.landscapeUrl}
-                  alt=""
+                  alt={`ภาพปก ${item.label} แบบที่ ${index + 1}`}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full w-full object-cover"
                 />
               </button>

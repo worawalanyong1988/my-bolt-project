@@ -4,6 +4,7 @@ import { useRouter } from '@/router';
 import { Cover } from '@/components/Cover';
 import { Badge } from '@/components/Badge';
 import { Modal } from '@/components/Modal';
+import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import { formatCount } from '@/utils/formatCount';
 import { translateText } from '@/utils/translate';
 import {
@@ -363,10 +364,14 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
 
           <div className="mt-5 bg-cream-100 rounded-2xl p-4">
             <div className="flex items-baseline justify-center gap-2">
-              <span className="text-3xl font-bold text-terracotta-500">59</span>
+              <span className="text-3xl font-bold text-terracotta-500">
+                {state.hasNextMonthDiscount ? '47.20' : '59'}
+              </span>
               <span className="text-sm text-charcoal-muted">บาท/เดือน</span>
             </div>
-            <p className="text-xs text-charcoal-muted line-through mt-1">ปกติ 99 บาท</p>
+            <p className="text-xs text-charcoal-muted line-through mt-1">
+              {state.hasNextMonthDiscount ? '59 บาท (ส่วนลด 20%)' : 'ปกติ 99 บาท'}
+            </p>
             <div className="mt-3 space-y-2 text-left">
               {[
                 'อ่านทุกตอนไม่จำกัด',
@@ -380,6 +385,9 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="mt-4 text-left">
+            <VipLoyaltyBanner coins={state.coins} />
           </div>
 
           <button

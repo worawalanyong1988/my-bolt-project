@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/useApp';
+import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import { useRouter } from '@/router';
 import { STICKERS, ART_STICKERS, DONATION_STICKERS } from '@/mockData';
 import { translateText } from '@/utils/translate';
@@ -388,6 +389,9 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
             <p className="text-sm text-charcoal-muted mb-6">
               สมัครสมาชิก VIP รายเดือนเพื่อปลดล็อกทุกตอน VIP โดยไม่ต้องจ่ายเพิ่มเป็นรายตอน
             </p>
+            <div className="mb-6 w-full">
+              <VipLoyaltyBanner coins={state.coins} />
+            </div>
             <button
               type="button"
               disabled

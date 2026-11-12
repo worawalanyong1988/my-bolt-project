@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Modal } from '@/components/Modal';
+import { VipLoyaltyBanner } from '@/components/VipLoyaltyBanner';
 import type { FontFamily, ReadingTheme } from '@/types';
 import { uploadProfileAvatar } from '@/services/profileStorage';
 import {
@@ -323,31 +324,32 @@ export function Profile() {
             <Crown size={22} className="text-amber-200" />
           </div>
         )}
-        {authUser && (
-          <div className={`relative mt-4 flex items-center justify-between gap-3 rounded-xl p-3 ${
-            state.isVIP ? 'bg-black/15 text-amber-50' : 'bg-white/70 text-charcoal'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Coins size={18} className={state.isVIP ? 'text-amber-200' : 'text-amber-600'} />
-              <div>
-                <p className="text-sm font-bold">{state.coins} Coins</p>
-                <p className={`text-[10px] ${state.isVIP ? 'text-white/70' : 'text-charcoal-muted'}`}>
-                  {state.isVIP ? 'VIP รับ 20 Coins ต่อรอบสมาชิกที่ยืนยันแล้ว และ 1 Coin ต่อโดเนททุก 10 บาท' : 'Coins สะสมจากการเป็นสมาชิก VIP'}
-                </p>
-              </div>
+        <div className={`relative mt-4 flex items-center justify-between gap-3 rounded-xl p-3 ${
+          state.isVIP ? 'bg-black/15 text-amber-50' : 'bg-white/70 text-charcoal'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Coins size={18} className={state.isVIP ? 'text-amber-200' : 'text-amber-600'} />
+            <div>
+              <p className="text-sm font-bold">{state.coins} Coins</p>
+              <p className={`text-[10px] ${state.isVIP ? 'text-white/70' : 'text-charcoal-muted'}`}>
+                Coins สะสมจากการสมัครหรือต่ออายุสมาชิก VIP ที่ชำระเงินสำเร็จ
+              </p>
             </div>
-            {state.isVIP && (
-              <button
-                type="button"
-                onClick={() => void handleRedeemDiscount()}
-                disabled={redeemBusy || state.coins < 100 || state.hasNextMonthDiscount}
-                className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-[10px] font-bold text-amber-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {state.hasNextMonthDiscount ? 'มีส่วนลดรอบถัดไปแล้ว' : redeemBusy ? 'กำลังแลก...' : 'แลก 100 Coins'}
-              </button>
-            )}
           </div>
-        )}
+          {state.isVIP && (
+            <button
+              type="button"
+              onClick={() => void handleRedeemDiscount()}
+              disabled={!authUser || redeemBusy || state.coins < 100 || state.hasNextMonthDiscount}
+              className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-[10px] font-bold text-amber-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {state.hasNextMonthDiscount ? 'มีส่วนลดรอบถัดไปแล้ว' : redeemBusy ? 'กำลังแลก...' : 'แลก 100 Coins'}
+            </button>
+          )}
+        </div>
+        <div className="relative mt-3">
+          <VipLoyaltyBanner coins={state.coins} />
+        </div>
       </section>
 
       <section className="mb-4 rounded-2xl border border-cream-200 bg-white p-4">
@@ -407,9 +409,11 @@ export function Profile() {
             </div>
             <h3 className="text-lg font-bold">สมัครสมาชิกพรีเมียม</h3>
             <p className="text-sm text-white/90 mt-1">
-              อ่านไม่อั้นทุกเรื่อง เพียง 59 บาท/เดือน
+              อ่านไม่อั้นทุกเรื่อง เพียง {state.hasNextMonthDiscount ? '47.20' : '59'} บาท/เดือน
             </p>
-            <p className="text-xs text-white/70 mt-0.5 line-through">จากปกติ 99 บาท</p>
+            <p className="text-xs text-white/70 mt-0.5 line-through">
+              {state.hasNextMonthDiscount ? '59 บาท (ใช้ส่วนลด 20%)' : 'จากปกติ 99 บาท'}
+            </p>
             <p className="mt-3 rounded-xl bg-white/15 p-3 text-xs leading-relaxed text-white">
               สมาชิก VIP สะสม Coins ได้ เมื่อครบ 100 Coins แลกส่วนลดค่าสมาชิก 20% สำหรับรอบบิลเดือนถัดไป
             </p>

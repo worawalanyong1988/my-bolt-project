@@ -13,16 +13,19 @@ import { Profile } from '@/pages/Profile';
 import { Studio } from '@/pages/Studio';
 import { StudioStory } from '@/pages/StudioStory';
 import { WriterStatistics } from '@/pages/WriterStatistics';
+import { Modal } from '@/components/Modal';
 
 function AppContent() {
   const { route, navigate } = useRouter();
-  const { state, persistenceError, authLoading, isWriter } = useApp();
+  const { state, persistenceError, authLoading, isWriter, authUser } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('ทั้งหมด');
   const [statisticsAccess, setStatisticsAccess] = useState(false);
   const previousRoute = useRef<Route['name'] | null>(null);
+  const transactionSnapshot = useRef<{ userId: string; ids: Set<string> } | null>(null);
+  const [vipSuccessOpen, setVipSuccessOpen] = useState(false);
   const handleTagSelect = useCallback((tag: string) => {
     setActiveTag(tag.replace(/^#/, ''));
     setSearchQuery('');
@@ -44,6 +47,29 @@ function AppContent() {
     }
     previousRoute.current = route.name;
   }, [route, statisticsAccess, navigate, authLoading, isWriter]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!authUser) {
+      transactionSnapshot.current = null;
+      return;
+    }
+
+    const currentIds = new Set(state.transactions.map((transaction) => transaction.id));
+    if (transactionSnapshot.current?.userId !== authUser.id) {
+      transactionSnapshot.current = { userId: authUser.id, ids: currentIds };
+      return;
+    }
+
+    const newVipTransaction = state.transactions.find((transaction) =>
+      !transactionSnapshot.current?.ids.has(transaction.id)
+      && transaction.type === 'vip_subscription'
+      && transaction.status === 'completed'
+      && transaction.coins === 5,
+    );
+    transactionSnapshot.current = { userId: authUser.id, ids: currentIds };
+    if (newVipTransaction) setVipSuccessOpen(true);
+  }, [authLoading, authUser, state.transactions]);
 
   const isReader = route.name === 'reader';
   const isStudio =
@@ -136,6 +162,24 @@ function AppContent() {
           {persistenceError}
         </div>
       )}
+      <Modal open={vipSuccessOpen} onClose={() => setVipSuccessOpen(false)} title="สมัครสมาชิก VIP สำเร็จ">
+        <div className="text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+            <span className="text-2xl" aria-hidden="true">🎉</span>
+          </div>
+          <p className="mt-4 text-base font-bold text-charcoal">
+            สมัครสมาชิก VIP สำเร็จ! คุณได้รับโบนัสสะสมเพิ่ม 5 คอยน์
+          </p>
+          <p className="mt-2 text-sm text-charcoal-muted">ยอดคอยน์สะสมของคุณตอนนี้ {state.coins} คอยน์</p>
+          <button
+            type="button"
+            onClick={() => setVipSuccessOpen(false)}
+            className="mt-5 w-full rounded-xl bg-terracotta-500 py-3 text-sm font-bold text-white hover:bg-terracotta-600"
+          >
+            รับทราบ
+          </button>
+        </div>
+      </Modal>
       <main className={showBottomNav ? 'pb-20' : ''}>
         {authLoading ? (
           <div className="mx-auto max-w-lg px-4 py-20 text-center text-sm text-charcoal-muted">

@@ -455,7 +455,7 @@ begin
 
   charge_amount := case when profile_row.has_next_month_discount then 47.20 else 59.00 end;
   update public.profiles
-  set coins = coins + 20,
+  set coins = coins + 5,
       has_next_month_discount = false,
       updated_at = now()
   where id = new.user_id;
@@ -465,10 +465,11 @@ begin
     new.user_id,
     'vip_subscription',
     charge_amount,
-    20,
+    5,
     'completed',
     jsonb_build_object(
       'description', 'สมัครหรือต่ออายุสมาชิก VIP',
+      'coin_bonus', 5,
       'discount_applied', profile_row.has_next_month_discount,
       'discount_percent', case when profile_row.has_next_month_discount then 20 else 0 end
     ),

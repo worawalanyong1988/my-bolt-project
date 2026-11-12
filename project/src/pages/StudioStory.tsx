@@ -80,7 +80,18 @@ export function StudioStory({ storyId }: { storyId: string }) {
       const loaded = ch.content
         ? { content: ch.content, authorNote: ch.authorNote ?? '' }
         : await loadChapterContentRemote(ch.id);
-      setEditingChapter({ ...ch, ...loaded });
+      setEditingChapter({
+        ...ch,
+        ...loaded,
+        number: Number.isFinite(ch.number) ? ch.number : chapters.length + 1,
+        title: ch.title ?? '',
+        status: ch.status === 'draft' ? 'draft' : 'published',
+        access: ch.access === 'vip' ? 'vip' : 'free',
+        authorNote: loaded.authorNote ?? ch.authorNote ?? '',
+        content: loaded.content ?? ch.content ?? '',
+        readCount: ch.readCount ?? 0,
+        createdAt: ch.createdAt ?? Date.now(),
+      });
       setShowEditor(true);
     } catch (error) {
       setChapterLoadError(error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ');
@@ -356,10 +367,10 @@ function ChapterEditor({
   onSave: (c: Chapter) => Promise<void>;
   onClose: () => void;
 }) {
-  const [number, setNumber] = useState(chapter?.number || nextNumber);
-  const [title, setTitle] = useState(chapter?.title || '');
-  const [access, setAccess] = useState<ChapterAccess>(chapter?.access || 'free');
-  const [authorNote, setAuthorNote] = useState(chapter?.authorNote || '');
+  const [number, setNumber] = useState(chapter?.number ?? nextNumber);
+  const [title, setTitle] = useState(chapter?.title ?? '');
+  const [access, setAccess] = useState<ChapterAccess>(chapter?.access ?? 'free');
+  const [authorNote, setAuthorNote] = useState(chapter?.authorNote ?? '');
   const editorRef = useRef<HTMLDivElement>(null);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');

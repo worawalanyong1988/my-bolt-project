@@ -283,13 +283,15 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
 
   const chaptersByStory = new Map<string, Chapter[]>();
   for (const row of chapterRows) {
-    const chapter = {
+    const chapter: Chapter = {
       ...row.data,
       id: row.id,
       number: row.number,
-      status: row.status,
-      access: row.access,
-      readCount: row.read_count,
+      title: row.data?.title ?? '',
+      status: row.status === 'draft' || row.data?.status === 'draft' ? 'draft' : 'published',
+      access: row.access === 'vip' || row.data?.access === 'vip' ? 'vip' : 'free',
+      authorNote: undefined,
+      readCount: row.read_count ?? 0,
       content: '',
     };
     chaptersByStory.set(row.story_id, [...(chaptersByStory.get(row.story_id) ?? []), chapter]);
@@ -397,9 +399,58 @@ export async function loadChapterContentRemote(chapterId: string): Promise<{ con
     .select('content,author_note')
     .eq('chapter_id', chapterId)
     .maybeSingle();
+  if (isMissingAuthorNoteColumn(result.error)) {
+    const legacyResult = await supabaseClient
+      .from('chapter_contents')
+      .select('content')
+      .eq('chapter_id', chapterId)
+      .maybeSingle();
+    throwOnError(legacyResult.error);
+    if (!legacyResult.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
+    return { content: legacyResult.data.content, authorNote: '' };
+  }
   throwOnError(result.error);
   if (!result.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
-  return { content: result.data.content, authorNote: result.data.author_note };
+  return { content: result.data.content, authorNote: result.data.author_note ?? '' };
+}
+
+function isMissingAuthorNoteColumn(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  if (candidate.code === '42703' || candidate.code === 'PGRST204') return true;
+  const description = [candidate.message, candidate.details]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+  return /author_note/i.test(description) && /(does not exist|not found|schema cache|could not find)/i.test(description);
+}
+
+async function saveChapterContentsRemote(
+  rows: Array<{ chapterId: string; storyId: string; content: string; authorNote?: string }>,
+): Promise<void> {
+  if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
+  const result = await supabaseClient.from('chapter_contents').upsert(
+    rows.map(({ chapterId, storyId, content, authorNote }) => ({
+      chapter_id: chapterId,
+      story_id: storyId,
+      content,
+      author_note: authorNote ?? '',
+    })),
+  );
+  if (isMissingAuthorNoteColumn(result.error)) {
+    if (rows.some((row) => row.authorNote?.trim())) {
+      throw new Error('ฐานข้อมูลยังไม่มีคอลัมน์ author_note กรุณารัน project/supabase_schema.sql ก่อนบันทึกข้อความพูดคุยกับนักอ่าน');
+    }
+    const legacyResult = await supabaseClient.from('chapter_contents').upsert(
+      rows.map(({ chapterId, storyId, content }) => ({
+        chapter_id: chapterId,
+        story_id: storyId,
+        content,
+      })),
+    );
+    throwOnError(legacyResult.error);
+    return;
+  }
+  throwOnError(result.error);
 }
 
 export async function saveStoryRemote(story: Story, userId: string): Promise<void> {
@@ -434,15 +485,12 @@ export async function saveStoryRemote(story: Story, userId: string): Promise<voi
       }),
     );
     throwOnError(result.error);
-    const contentResult = await supabaseClient.from('chapter_contents').upsert(
-      chapters.map((chapter) => ({
-        chapter_id: chapter.id,
-        story_id: story.id,
-        content: chapter.content,
-        author_note: chapter.authorNote ?? '',
-      })),
-    );
-    throwOnError(contentResult.error);
+    await saveChapterContentsRemote(chapters.map((chapter) => ({
+      chapterId: chapter.id,
+      storyId: story.id,
+      content: chapter.content,
+      authorNote: chapter.authorNote,
+    })));
   }
 }
 
@@ -461,15 +509,12 @@ export async function saveChapterRemote(storyId: string, chapter: Chapter): Prom
     created_at: chapter.createdAt,
   });
   throwOnError(result.error);
-  const contentResult = await supabaseClient
-    .from('chapter_contents')
-    .upsert({
-      chapter_id: chapter.id,
-      story_id: storyId,
-      content,
-      author_note: authorNote ?? '',
-    });
-  throwOnError(contentResult.error);
+  await saveChapterContentsRemote([{
+    chapterId: chapter.id,
+    storyId,
+    content,
+    authorNote,
+  }]);
 }
 
 export async function saveProfileRemote(userId: string, profile: UserProfile): Promise<void> {

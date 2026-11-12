@@ -91,6 +91,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [translatedTitle, setTranslatedTitle] = useState<string | null>(null);
   const [chapterContent, setChapterContent] = useState('');
+  const [chapterAuthorNote, setChapterAuthorNote] = useState('');
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
@@ -137,6 +138,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   useEffect(() => {
     let active = true;
     setChapterContent('');
+    setChapterAuthorNote('');
     setContentError(null);
     setTranslatedContent(null);
     setTranslatedTitle(null);
@@ -150,8 +152,11 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
 
     setContentLoading(true);
     void loadChapterContentRemote(chapterIdToLoad)
-      .then((content) => {
-        if (active) setChapterContent(content);
+      .then(({ content, authorNote }) => {
+        if (active) {
+          setChapterContent(content);
+          setChapterAuthorNote(authorNote);
+        }
       })
       .catch((error: unknown) => {
         if (active) setContentError(error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ');
@@ -610,6 +615,12 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                 เนื้อหานิยายนี้ได้รับการคุ้มครองลิขสิทธิ์ © Aksara
               </p>
             </div>
+            {chapterAuthorNote && (
+              <aside className="mt-8 rounded-2xl border border-terracotta-100 bg-white/80 p-5 shadow-sm">
+                <h2 className="mb-2 text-sm font-bold text-terracotta-700">พูดคุยกับนักอ่าน</h2>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-charcoal-light">{chapterAuthorNote}</p>
+              </aside>
+            )}
 
             {/* Chapter navigation */}
             <div className="flex items-center justify-between mt-10 pt-6 border-t border-current/10">

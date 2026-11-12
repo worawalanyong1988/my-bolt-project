@@ -80,8 +80,10 @@ create table if not exists public.chapters (
 create table if not exists public.chapter_contents (
   chapter_id text primary key references public.chapters(id) on delete cascade,
   story_id text not null references public.stories(id) on delete cascade,
-  content text not null default ''
+  content text not null default '',
+  author_note text not null default ''
 );
+alter table public.chapter_contents add column if not exists author_note text not null default '';
 
 create table if not exists public.comments (
   id text primary key,

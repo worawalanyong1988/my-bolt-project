@@ -30,6 +30,7 @@ export interface Chapter {
   number: number;
   title: string;
   content: string; // HTML
+  authorNote?: string;
   access: ChapterAccess;
   status: StoryStatus;
   readCount: number;

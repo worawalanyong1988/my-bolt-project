@@ -390,16 +390,16 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   };
 }
 
-export async function loadChapterContentRemote(chapterId: string): Promise<string> {
+export async function loadChapterContentRemote(chapterId: string): Promise<{ content: string; authorNote: string }> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const result = await supabaseClient
     .from('chapter_contents')
-    .select('content')
+    .select('content,author_note')
     .eq('chapter_id', chapterId)
     .maybeSingle();
   throwOnError(result.error);
   if (!result.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
-  return result.data.content;
+  return { content: result.data.content, authorNote: result.data.author_note };
 }
 
 export async function saveStoryRemote(story: Story, userId: string): Promise<void> {
@@ -435,7 +435,12 @@ export async function saveStoryRemote(story: Story, userId: string): Promise<voi
     );
     throwOnError(result.error);
     const contentResult = await supabaseClient.from('chapter_contents').upsert(
-      chapters.map((chapter) => ({ chapter_id: chapter.id, story_id: story.id, content: chapter.content })),
+      chapters.map((chapter) => ({
+        chapter_id: chapter.id,
+        story_id: story.id,
+        content: chapter.content,
+        author_note: chapter.authorNote ?? '',
+      })),
     );
     throwOnError(contentResult.error);
   }
@@ -443,7 +448,7 @@ export async function saveStoryRemote(story: Story, userId: string): Promise<voi
 
 export async function saveChapterRemote(storyId: string, chapter: Chapter): Promise<void> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
-  const { readCount, content, ...data } = chapter;
+  const { readCount, content, authorNote, ...data } = chapter;
   const text = content.replace(/<[^>]+>/g, ' ').trim();
   const result = await supabaseClient.from('chapters').upsert({
     id: chapter.id,
@@ -458,7 +463,12 @@ export async function saveChapterRemote(storyId: string, chapter: Chapter): Prom
   throwOnError(result.error);
   const contentResult = await supabaseClient
     .from('chapter_contents')
-    .upsert({ chapter_id: chapter.id, story_id: storyId, content });
+    .upsert({
+      chapter_id: chapter.id,
+      story_id: storyId,
+      content,
+      author_note: authorNote ?? '',
+    });
   throwOnError(contentResult.error);
 }
 

@@ -557,7 +557,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [state.stories],
   );
 
-  const saveChapter = useCallback((storyId: string, chapter: Chapter) => {
+  const saveChapter = useCallback(async (storyId: string, chapter: Chapter) => {
     setState((current) => ({
       ...current,
       stories: current.stories.map((story) => {
@@ -572,7 +572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
       }),
     }));
-    void persist(async () => {
+    try {
       await saveChapterRemote(storyId, chapter);
       if (supabaseClient) {
         const publishResult = await supabaseClient
@@ -585,8 +585,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (publishResult.error) throw publishResult.error;
       }
       await refreshRef.current(userRef.current);
-    });
-  }, [persist]);
+      setPersistenceError(null);
+    } catch (error) {
+      let message = `บันทึกตอนใน Supabase ไม่สำเร็จ: ${errorMessage(error)}`;
+      try {
+        await refreshRef.current(userRef.current);
+      } catch (refreshError) {
+        message = `บันทึก/โหลดตอนจาก Supabase ไม่สำเร็จ: ${errorMessage(refreshError)}`;
+      }
+      setPersistenceError(message);
+      throw error;
+    }
+  }, []);
 
   const deleteChapter = useCallback((storyId: string, chapterId: string) => {
     setState((current) => ({

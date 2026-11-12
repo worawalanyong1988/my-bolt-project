@@ -56,7 +56,7 @@ export interface AppContextType {
   saveStory: (story: Story) => void;
   deleteStory: (storyId: string) => void;
   getStory: (storyId: string) => Story | undefined;
-  saveChapter: (storyId: string, chapter: Chapter) => void;
+  saveChapter: (storyId: string, chapter: Chapter) => Promise<void>;
   deleteChapter: (storyId: string, chapterId: string) => void;
   reorderChapters: (storyId: string, chapterIds: string[]) => void;
   getChapter: (storyId: string, chapterId: string) => Chapter | undefined;

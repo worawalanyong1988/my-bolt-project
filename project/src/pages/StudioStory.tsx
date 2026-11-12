@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Bold,
   Italic,
+  Underline,
   Strikethrough,
   Heading1,
   Heading2,
@@ -33,6 +34,8 @@ import {
   Indent,
   Pilcrow,
   Globe2,
+  Minus,
+  X,
 } from 'lucide-react';
 
 function uid(): string {
@@ -74,8 +77,10 @@ export function StudioStory({ storyId }: { storyId: string }) {
     setChapterLoadError(null);
     setLoadingChapterId(ch.id);
     try {
-      const content = ch.content || await loadChapterContentRemote(ch.id);
-      setEditingChapter({ ...ch, content });
+      const loaded = ch.content
+        ? { content: ch.content, authorNote: ch.authorNote ?? '' }
+        : await loadChapterContentRemote(ch.id);
+      setEditingChapter({ ...ch, ...loaded });
       setShowEditor(true);
     } catch (error) {
       setChapterLoadError(error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ');
@@ -84,13 +89,9 @@ export function StudioStory({ storyId }: { storyId: string }) {
     }
   };
 
-  const handleSaveChapter = (ch: Chapter) => {
-    saveChapter(story.id, ch);
-    setShowEditor(false);
-    setEditingChapter(null);
-    if (ch.status === 'published' && editingChapter?.status !== 'published') {
-      navigate({ name: 'home' });
-    }
+  const handleSaveChapter = async (ch: Chapter) => {
+    await saveChapter(story.id, ch);
+    setEditingChapter(ch);
   };
 
   const handleDeleteChapter = (chId: string) => {
@@ -352,13 +353,13 @@ function ChapterEditor({
 }: {
   chapter: Chapter | null;
   nextNumber: number;
-  onSave: (c: Chapter) => void;
+  onSave: (c: Chapter) => Promise<void>;
   onClose: () => void;
 }) {
   const [number, setNumber] = useState(chapter?.number || nextNumber);
   const [title, setTitle] = useState(chapter?.title || '');
   const [access, setAccess] = useState<ChapterAccess>(chapter?.access || 'free');
-  const [status, setStatus] = useState<StoryStatus>(chapter?.status || 'draft');
+  const [authorNote, setAuthorNote] = useState(chapter?.authorNote || '');
   const editorRef = useRef<HTMLDivElement>(null);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -366,11 +367,25 @@ function ChapterEditor({
   const [linkError, setLinkError] = useState<string | null>(null);
   const savedLinkRange = useRef<Range | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [contentVersion, setContentVersion] = useState(0);
+  const [, setContentVersion] = useState(0);
+  const [saveState, setSaveState] = useState<'idle' | 'unsaved' | 'saving' | 'draft-saved' | 'published' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const editRevision = useRef(0);
   const [editorFontSize, setEditorFontSize] = useState(16);
   const [toolbarFontSize, setToolbarFontSize] = useState(16);
   const [autoIndent, setAutoIndent] = useState(true);
   const savedEditorSelection = useRef<Range | null>(null);
+
+  const markUnsaved = useCallback(() => {
+    editRevision.current += 1;
+    setSaveState('unsaved');
+    setSaveError(null);
+  }, []);
+
+  const markContentChanged = useCallback(() => {
+    setContentVersion((version) => version + 1);
+    markUnsaved();
+  }, [markUnsaved]);
 
   // Initialize contenteditable content
   useEffect(() => {
@@ -383,8 +398,8 @@ function ChapterEditor({
   const exec = useCallback((command: string, value?: string) => {
     document.execCommand(command, false, value);
     editorRef.current?.focus();
-    setContentVersion((v) => v + 1);
-  }, []);
+    markContentChanged();
+  }, [markContentChanged]);
 
   const captureEditorSelection = useCallback(() => {
     const editor = editorRef.current;
@@ -472,7 +487,7 @@ function ChapterEditor({
       selection?.addRange(updatedRange);
       savedEditorSelection.current = updatedRange.cloneRange();
       setToolbarFontSize(fontSize);
-      setContentVersion((version) => version + 1);
+      markContentChanged();
       editor.focus();
     } else {
       setEditorFontSize(fontSize);
@@ -494,12 +509,12 @@ function ChapterEditor({
             e.preventDefault();
             document.execCommand('formatBlock', false, '<p>');
             document.execCommand('insertHTML', false, '<br>');
-            setContentVersion((v) => v + 1);
+            markContentChanged();
           }
         }
       }
     }
-  }, []);
+  }, [markContentChanged]);
 
   // Auto-indent: wraps current paragraph with text-indent style for Thai novel style
   const handleIndent = useCallback(() => {
@@ -514,7 +529,7 @@ function ChapterEditor({
           ? block.dataset.manualIndent === 'on'
           : autoIndent;
         block.dataset.manualIndent = currentlyIndented ? 'off' : 'on';
-        setContentVersion((v) => v + 1);
+        markContentChanged();
         return;
       }
       block = block.parentElement;
@@ -527,29 +542,29 @@ function ChapterEditor({
     while (formattedBlock && formattedBlock !== editorRef.current) {
       if (formattedBlock.tagName === 'P') {
         formattedBlock.dataset.manualIndent = autoIndent ? 'off' : 'on';
-        setContentVersion((v) => v + 1);
+        markContentChanged();
         return;
       }
       formattedBlock = formattedBlock.parentElement;
     }
     if (editorRef.current) {
       normalizeEditorParagraphs(editorRef.current);
-      setContentVersion((v) => v + 1);
+      markContentChanged();
     }
-  }, [autoIndent]);
+  }, [autoIndent, markContentChanged]);
 
   // Auto-format: wrap all loose text nodes in <p> tags
   const handleAutoFormat = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
     normalizeEditorParagraphs(editor);
-    setContentVersion((v) => v + 1);
-  }, []);
+    markContentChanged();
+  }, [markContentChanged]);
 
   const handleEditorInput = () => {
     const editor = editorRef.current;
     if (editor) normalizeEditorParagraphs(editor);
-    setContentVersion((version) => version + 1);
+    markContentChanged();
     captureEditorSelection();
   };
 
@@ -565,7 +580,7 @@ function ChapterEditor({
       .join('');
     document.execCommand('insertHTML', false, paragraphs);
     normalizeEditorParagraphs(editor);
-    setContentVersion((version) => version + 1);
+    markContentChanged();
     captureEditorSelection();
   };
 
@@ -625,7 +640,7 @@ function ChapterEditor({
     selection.removeAllRanges();
     selection.addRange(range);
 
-    setContentVersion((v) => v + 1);
+    markContentChanged();
     setLinkModalOpen(false);
     setLinkUrl('');
     setLinkText('');
@@ -639,136 +654,184 @@ function ChapterEditor({
   const cc = charCount(currentContent);
   const readTime = Math.max(1, Math.ceil(wc / 200));
 
-  const handleSave = () => {
-    if (!title.trim()) return;
+  const handleSceneBreak = () => {
+    document.execCommand('insertHTML', false, '<p style="text-align: center;">***</p><p><br></p>');
+    editorRef.current?.focus();
+    markContentChanged();
+  };
+
+  const handleSave = async (nextStatus: StoryStatus) => {
+    if (!title.trim() || saveState === 'saving') return;
     const content = editorRef.current
       ? cleanChapterContent(editorRef.current.innerHTML)
       : '<p><br></p>';
+    const revisionAtSave = editRevision.current;
     const newChapter: Chapter = {
       id: chapter?.id || uid(),
       number,
       title: title.trim(),
       content,
+      authorNote: authorNote.trim(),
       access,
-      status,
+      status: nextStatus,
       readCount: chapter?.readCount ?? 0,
       createdAt: chapter?.createdAt || Date.now(),
     };
-    onSave(newChapter);
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      await onSave(newChapter);
+      setSaveState(editRevision.current === revisionAtSave
+        ? nextStatus === 'published' ? 'published' : 'draft-saved'
+        : 'unsaved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'บันทึกตอนไม่สำเร็จ กรุณาลองอีกครั้ง');
+    }
   };
 
   return (
     <Modal
       open={true}
       onClose={onClose}
-      title={chapter ? 'แก้ไขตอน' : 'เพิ่มตอนใหม่'}
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-5xl"
     >
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+      <div className="-mx-5 -mt-5 sticky top-0 z-30 mb-5 border-b border-cream-200 bg-cream-50/95 shadow-sm backdrop-blur">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 sm:px-6">
+          <div>
+            <h2 className="text-base font-bold text-charcoal">{chapter ? 'แก้ไขตอน' : 'เพิ่มตอนใหม่'}</h2>
+            <p className="text-[11px] text-charcoal-muted">พื้นที่เขียนสำหรับนักเขียน Aksara</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="ปิดหน้าต่างเขียนตอน"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-charcoal-muted transition hover:bg-cream-200"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        {/* Formatting toolbar */}
+        <div className="px-3 pb-3 sm:px-6">
+          <div className="rounded-xl border border-cream-200 bg-white/90 p-2">
+            <div className="flex flex-wrap items-center gap-1">
+              <ToolbarBtn onClick={() => exec('bold')} title="ตัวหนา">
+                <Bold size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('italic')} title="ตัวเอียง">
+                <Italic size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('underline')} title="ขีดเส้นใต้">
+                <Underline size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('strikeThrough')} title="ขีดฆ่า">
+                <Strikethrough size={16} />
+              </ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={() => exec('formatBlock', '<h1>')} title="Heading 1">
+                <Heading1 size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('formatBlock', '<h2>')} title="Heading 2">
+                <Heading2 size={16} />
+              </ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={() => exec('justifyLeft')} title="จัดชิดซ้าย">
+                <AlignLeft size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('justifyCenter')} title="จัดกึ่งกลาง">
+                <AlignCenter size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('justifyRight')} title="จัดชิดขวา">
+                <AlignRight size={16} />
+              </ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="รายการหัวข้อ">
+                <List size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={() => exec('insertOrderedList')} title="รายการลำดับเลข">
+                <ListOrdered size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={handleSceneBreak} title="แทรกเส้นคั่นฉาก ***">
+                <Minus size={16} />
+              </ToolbarBtn>
+              <Divider />
+              <ToolbarBtn onClick={handleLink} title="แทรกลิงก์">
+                <LinkIcon size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={handleIndent} title="ย่อหน้า">
+                <Indent size={16} />
+              </ToolbarBtn>
+              <ToolbarBtn onClick={handleAutoFormat} title="จัดย่อหน้าอัตโนมัติ">
+                <Pilcrow size={16} />
+              </ToolbarBtn>
+              <button
+                type="button"
+                onClick={() => setAutoIndent((enabled) => !enabled)}
+                aria-pressed={autoIndent}
+                title="เปิดหรือปิดการเยื้องบรรทัดแรกอัตโนมัติ"
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                  autoIndent
+                    ? 'border-terracotta-300 bg-terracotta-50 text-terracotta-700'
+                    : 'border-cream-200 bg-white text-charcoal-muted hover:bg-cream-50'
+                }`}
+              >
+                <Indent size={14} />
+                เยื้องอัตโนมัติ {autoIndent ? 'เปิด' : 'ปิด'}
+              </button>
+              <label className="flex items-center gap-2 rounded-lg border border-terracotta-300 bg-white px-3 py-1.5 text-xs font-bold text-charcoal shadow-sm">
+                <Type size={15} className="text-terracotta-600" />
+                ขนาดตัวอักษร
+                <select
+                  value={toolbarFontSize}
+                  onPointerDown={captureEditorSelection}
+                  onChange={(event) => applyEditorFontSize(Number(event.target.value))}
+                  aria-label="ขนาดตัวอักษรในช่องเขียน"
+                  className="rounded-md border border-cream-200 bg-cream-50 px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+                >
+                  <option value={14}>เล็ก · 14px</option>
+                  <option value={16}>ปกติ · 16px</option>
+                  <option value={18}>ใหญ่ · 18px</option>
+                  <option value={20}>ใหญ่มาก · 20px</option>
+                  <option value={24}>ใหญ่พิเศษ · 24px</option>
+                </select>
+              </label>
+            </div>
+            <p className="mt-2 px-2 text-[10px] leading-relaxed text-charcoal-muted">
+              คลุมดำข้อความก่อนเลือกขนาดเพื่อปรับเฉพาะส่วนนั้น หรือวางเคอร์เซอร์ไว้ในช่องเพื่อปรับทั้งช่อง
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border border-cream-200 bg-[#fffefa] p-4 shadow-sm sm:p-8">
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <FormField label="ตอนที่">
             <input
               type="number"
               value={number}
-              onChange={(e) => setNumber(parseInt(e.target.value) || 1)}
+              onChange={(e) => {
+                setNumber(parseInt(e.target.value) || 1);
+                markUnsaved();
+              }}
               className="w-full px-3 py-2.5 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
             />
           </FormField>
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <FormField label="ชื่อตอน">
               <input
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  markUnsaved();
+                }}
                 placeholder="บทที่ 1: จุดเริ่มต้น"
                 className="w-full px-3 py-2.5 rounded-xl bg-cream-100 border border-cream-200 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-300"
               />
             </FormField>
           </div>
-        </div>
-
-        {/* Formatting toolbar */}
-        <div className="bg-cream-100 rounded-xl p-2">
-          <div className="flex flex-wrap items-center gap-1">
-            <ToolbarBtn onClick={() => exec('bold')} title="Bold">
-              <Bold size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('italic')} title="Italic">
-              <Italic size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('strikeThrough')} title="Strikethrough">
-              <Strikethrough size={16} />
-            </ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={() => exec('formatBlock', '<h1>')} title="Heading 1">
-              <Heading1 size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('formatBlock', '<h2>')} title="Heading 2">
-              <Heading2 size={16} />
-            </ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={() => exec('justifyLeft')} title="Align left">
-              <AlignLeft size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('justifyCenter')} title="Align center">
-              <AlignCenter size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('justifyRight')} title="Align right">
-              <AlignRight size={16} />
-            </ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={() => exec('insertUnorderedList')} title="Bullet list">
-              <List size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={() => exec('insertOrderedList')} title="Numbered list">
-              <ListOrdered size={16} />
-            </ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={handleLink} title="Insert link">
-              <LinkIcon size={16} />
-            </ToolbarBtn>
-            <Divider />
-            <ToolbarBtn onClick={handleIndent} title="ย่อหน้า (Indent)">
-              <Indent size={16} />
-            </ToolbarBtn>
-            <ToolbarBtn onClick={handleAutoFormat} title="จัดย่อหน้าอัตโนมัติ">
-              <Pilcrow size={16} />
-            </ToolbarBtn>
-            <button
-              type="button"
-              onClick={() => setAutoIndent((enabled) => !enabled)}
-              aria-pressed={autoIndent}
-              title="เปิดหรือปิดการเยื้องบรรทัดแรกอัตโนมัติ"
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                autoIndent
-                  ? 'border-terracotta-300 bg-terracotta-50 text-terracotta-700'
-                  : 'border-cream-200 bg-white text-charcoal-muted hover:bg-cream-50'
-              }`}
-            >
-              <Indent size={14} />
-              เยื้องอัตโนมัติ {autoIndent ? 'เปิด' : 'ปิด'}
-            </button>
-            <label className="flex items-center gap-2 rounded-lg border border-terracotta-300 bg-white px-3 py-1.5 text-xs font-bold text-charcoal shadow-sm">
-              <Type size={15} className="text-terracotta-600" />
-              ขนาดตัวอักษร
-              <select
-                value={toolbarFontSize}
-                onPointerDown={captureEditorSelection}
-                onChange={(event) => applyEditorFontSize(Number(event.target.value))}
-                aria-label="ขนาดตัวอักษรในช่องเขียน"
-                className="rounded-md border border-cream-200 bg-cream-50 px-2 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-terracotta-300"
-              >
-                <option value={14}>เล็ก · 14px</option>
-                <option value={16}>ปกติ · 16px</option>
-                <option value={18}>ใหญ่ · 18px</option>
-                <option value={20}>ใหญ่มาก · 20px</option>
-                <option value={24}>ใหญ่พิเศษ · 24px</option>
-              </select>
-            </label>
-          </div>
-          <p className="mt-2 px-2 text-[10px] leading-relaxed text-charcoal-muted">
-            คลุมดำข้อความก่อนเลือกขนาดเพื่อปรับเฉพาะส่วนนั้น หรือวางเคอร์เซอร์ไว้ในช่องเพื่อปรับทั้งช่อง
-          </p>
         </div>
 
         {/* Editor area */}
@@ -784,13 +847,13 @@ function ChapterEditor({
             onMouseUp={captureEditorSelection}
             onKeyUp={captureEditorSelection}
             onTouchEnd={captureEditorSelection}
-            className={`chapter-editor prose-reader w-full min-h-[300px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl bg-cream-100 border border-cream-200 focus:outline-none focus:ring-2 focus:ring-terracotta-300 font-plex ${autoIndent ? 'auto-indent' : ''}`}
+            className={`chapter-editor prose-reader w-full min-h-[55vh] px-4 py-5 rounded-xl bg-white border border-cream-200 focus:outline-none focus:ring-2 focus:ring-terracotta-300 font-plex ${autoIndent ? 'auto-indent' : ''}`}
             style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
           />
         </div>
 
         {/* Live counters */}
-        <div className="flex items-center gap-4 text-xs text-charcoal-muted bg-cream-100 rounded-xl px-4 py-2.5" key={contentVersion}>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-charcoal-muted bg-cream-100 rounded-xl px-4 py-2.5">
           <span>{wc} คำ</span>
           <span>·</span>
           <span>{cc} ตัวอักษร</span>
@@ -801,28 +864,55 @@ function ChapterEditor({
             className="ml-auto flex items-center gap-1 text-terracotta-600 font-medium hover:text-terracotta-700"
           >
             <Eye size={14} />
-            {showPreview ? 'ซ่อนตัวอย่าง' : 'ดูตัวอย่าง'}
+            {showPreview ? 'ซ่อนตัวอย่าง' : 'ดูตัวอย่างมุมมองนักอ่าน'}
           </button>
         </div>
 
         {/* Live preview */}
         {showPreview && (
-          <div className="bg-white rounded-xl p-4 border border-cream-200 max-h-60 overflow-y-auto">
+          <div className="rounded-xl border border-cream-200 bg-white p-5 shadow-inner">
             <div
               className={`chapter-editor prose-reader font-plex ${autoIndent ? 'auto-indent' : ''}`}
               style={{ fontSize: `${editorFontSize}px`, lineHeight: 1.8 }}
               dangerouslySetInnerHTML={{ __html: currentContent }}
             />
+            {authorNote.trim() && (
+              <aside className="mt-6 border-t border-cream-200 pt-4">
+                <h3 className="mb-2 text-sm font-bold text-terracotta-700">พูดคุยกับนักอ่าน</h3>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-charcoal-light">{authorNote}</p>
+              </aside>
+            )}
           </div>
         )}
 
-        {/* Access & Status toggles */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* Author note */}
+        <div className="rounded-xl border border-cream-200 bg-white p-4">
+          <label htmlFor="chapter-author-note" className="mb-2 block text-sm font-bold text-charcoal">
+            พูดคุยกับนักอ่าน <span className="font-normal text-charcoal-muted">(Author&apos;s Note)</span>
+          </label>
+          <textarea
+            id="chapter-author-note"
+            value={authorNote}
+            onChange={(event) => {
+              setAuthorNote(event.target.value);
+              markUnsaved();
+            }}
+            rows={4}
+            placeholder="เขียนข้อความทักทายหรือพูดคุยกับนักอ่านท้ายตอน..."
+            className="w-full resize-y rounded-xl border border-cream-200 bg-cream-50 px-3 py-2.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-terracotta-300"
+          />
+        </div>
+
+        {/* Chapter access */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="bg-cream-100 rounded-xl p-3">
             <p className="text-xs font-semibold text-charcoal mb-2">สิทธิ์การอ่าน</p>
             <div className="flex gap-2">
               <button
-                onClick={() => setAccess('free')}
+                onClick={() => {
+                  setAccess('free');
+                  markUnsaved();
+                }}
                 className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${
                   access === 'free' ? 'bg-emerald-500 text-white' : 'bg-cream-200 text-charcoal'
                 }`}
@@ -830,7 +920,10 @@ function ChapterEditor({
                 อ่านฟรี
               </button>
               <button
-                onClick={() => setAccess('vip')}
+                onClick={() => {
+                  setAccess('vip');
+                  markUnsaved();
+                }}
                 className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${
                   access === 'vip' ? 'bg-amber-500 text-white' : 'bg-cream-200 text-charcoal'
                 }`}
@@ -839,44 +932,42 @@ function ChapterEditor({
               </button>
             </div>
           </div>
-          <div className="bg-cream-100 rounded-xl p-3">
-            <p className="text-xs font-semibold text-charcoal mb-2">สถานะ</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStatus('draft')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${
-                  status === 'draft' ? 'bg-gray-500 text-white' : 'bg-cream-200 text-charcoal'
-                }`}
-              >
-                แบบร่าง
-              </button>
-              <button
-                onClick={() => setStatus('published')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition ${
-                  status === 'published' ? 'bg-terracotta-500 text-white' : 'bg-cream-200 text-charcoal'
-                }`}
-              >
-                เผยแพร่
-              </button>
-            </div>
+          <div className="flex items-center rounded-xl bg-cream-100 px-4 py-3 text-xs text-charcoal-muted">
+            เลือกสถานะได้จากปุ่มบันทึกร่างหรือเผยแพร่ด้านล่าง
           </div>
         </div>
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-col gap-2 border-t border-cream-200 pt-4 sm:flex-row">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-cream-100 text-charcoal text-sm font-medium hover:bg-cream-200 transition"
+            disabled={saveState === 'saving'}
+            className="order-3 flex-1 rounded-xl bg-cream-100 py-3 text-sm font-medium text-charcoal transition hover:bg-cream-200 disabled:opacity-50 sm:order-1"
           >
             ยกเลิก
           </button>
           <button
-            onClick={handleSave}
-            disabled={!title.trim()}
-            className="flex-1 py-3 rounded-xl bg-terracotta-500 text-white text-sm font-bold hover:bg-terracotta-600 transition disabled:opacity-40 active:scale-95"
+            onClick={() => void handleSave('draft')}
+            disabled={!title.trim() || saveState === 'saving'}
+            className="order-2 flex-1 rounded-xl border border-terracotta-300 bg-white py-3 text-sm font-bold text-terracotta-700 transition hover:bg-terracotta-50 disabled:opacity-40"
           >
-            บันทึกตอน
+            บันทึกแบบร่าง
+          </button>
+          <button
+            onClick={() => void handleSave('published')}
+            disabled={!title.trim() || saveState === 'saving'}
+            className="order-1 flex-1 rounded-xl bg-terracotta-500 py-3 text-sm font-bold text-white transition hover:bg-terracotta-600 disabled:opacity-40 active:scale-95 sm:order-3"
+          >
+            เผยแพร่ตอน
           </button>
         </div>
+        <p className="min-h-5 text-xs" role="status" aria-live="polite">
+          {saveState === 'saving' && <span className="text-terracotta-700">กำลังบันทึกตอน...</span>}
+          {saveState === 'unsaved' && <span className="text-amber-700">มีการแก้ไขที่ยังไม่ได้บันทึก</span>}
+          {saveState === 'draft-saved' && <span className="text-emerald-700">บันทึกฉบับร่างแล้ว</span>}
+          {saveState === 'published' && <span className="text-emerald-700">เผยแพร่ตอนเรียบร้อยแล้ว</span>}
+          {saveState === 'error' && <span className="text-red-600">บันทึกไม่สำเร็จ: {saveError}</span>}
+        </p>
+      </div>
       </div>
 
       {/* Link modal */}
@@ -940,36 +1031,44 @@ function ReaderPreview({
   const [previewState, setPreviewState] = useState<{
     chapterId: string;
     content: string;
+    authorNote: string;
     loading: boolean;
     error: string | null;
-  }>({ chapterId: '', content: '', loading: false, error: null });
+  }>({ chapterId: '', content: '', authorNote: '', loading: false, error: null });
 
   useEffect(() => {
     let active = true;
     if (!selectedChapterId) {
-      setPreviewState({ chapterId: '', content: '', loading: false, error: null });
+      setPreviewState({ chapterId: '', content: '', authorNote: '', loading: false, error: null });
       return () => {
         active = false;
       };
     }
 
     if (chapter?.content) {
-      setPreviewState({ chapterId: selectedChapterId, content: chapter.content, loading: false, error: null });
+      setPreviewState({
+        chapterId: selectedChapterId,
+        content: chapter.content,
+        authorNote: chapter.authorNote ?? '',
+        loading: false,
+        error: null,
+      });
       return () => {
         active = false;
       };
     }
 
-    setPreviewState({ chapterId: selectedChapterId, content: '', loading: true, error: null });
+    setPreviewState({ chapterId: selectedChapterId, content: '', authorNote: '', loading: true, error: null });
     void loadChapterContentRemote(selectedChapterId)
-      .then((content) => {
-        if (active) setPreviewState({ chapterId: selectedChapterId, content, loading: false, error: null });
+      .then(({ content, authorNote }) => {
+        if (active) setPreviewState({ chapterId: selectedChapterId, content, authorNote, loading: false, error: null });
       })
       .catch((error: unknown) => {
         if (active) {
           setPreviewState({
             chapterId: selectedChapterId,
             content: '',
+            authorNote: '',
             loading: false,
             error: error instanceof Error ? error.message : 'โหลดเนื้อหาตอนไม่สำเร็จ',
           });
@@ -979,9 +1078,10 @@ function ReaderPreview({
     return () => {
       active = false;
     };
-  }, [chapter?.content, selectedChapterId]);
+  }, [chapter?.authorNote, chapter?.content, selectedChapterId]);
 
   const previewContent = previewState.chapterId === selectedChapterId ? previewState.content : '';
+  const previewAuthorNote = previewState.chapterId === selectedChapterId ? previewState.authorNote : '';
   const previewLoading = previewState.chapterId === selectedChapterId && previewState.loading;
   const previewError = previewState.chapterId === selectedChapterId ? previewState.error : null;
 
@@ -1068,6 +1168,12 @@ function ReaderPreview({
                   dangerouslySetInnerHTML={{ __html: previewContent }}
                 />
               )}
+              {!previewLoading && !previewError && previewAuthorNote && (
+                <aside className="mt-8 rounded-2xl border border-terracotta-100 bg-white/80 p-5 shadow-sm">
+                  <h3 className="mb-2 text-sm font-bold text-terracotta-700">พูดคุยกับนักอ่าน</h3>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-charcoal-light">{previewAuthorNote}</p>
+                </aside>
+              )}
             </div>
           ) : (
             <p className="text-sm text-charcoal-muted text-center py-20">ยังไม่มีตอน</p>
@@ -1098,13 +1204,27 @@ function ReaderPreview({
 // ============ Helpers ============
 
 function wordCount(html: string): number {
-  const text = html.replace(/<[^>]+>/g, ' ').trim();
+  const text = editorText(html).trim();
   if (!text) return 0;
+  if (typeof Intl.Segmenter === 'function') {
+    return [...new Intl.Segmenter('th', { granularity: 'word' }).segment(text)]
+      .filter((segment) => segment.isWordLike).length;
+  }
   return text.split(/\s+/).filter(Boolean).length;
 }
 
 function charCount(html: string): number {
-  return html.replace(/<[^>]+>/g, '').length;
+  const text = editorText(html);
+  if (typeof Intl.Segmenter === 'function') {
+    return [...new Intl.Segmenter('th', { granularity: 'grapheme' }).segment(text)].length;
+  }
+  return Array.from(text).length;
+}
+
+function editorText(html: string): string {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  return container.textContent || '';
 }
 
 function escapeHtml(text: string): string {

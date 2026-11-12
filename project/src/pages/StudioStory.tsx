@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApp } from '@/useApp';
 import { useRouter } from '@/router';
 import { Modal } from '@/components/Modal';
+import { StudioErrorBoundary } from '@/components/StudioErrorBoundary';
 import { Badge } from '@/components/Badge';
 import { Cover } from '@/components/Cover';
 import { StoryForm } from '@/pages/Studio';
@@ -295,11 +296,13 @@ export function StudioStory({ storyId }: { storyId: string }) {
 
       {/* Story editor */}
       {showStoryForm && (
-        <StoryForm
-          story={story}
-          onSave={handleSaveStory}
-          onClose={() => setShowStoryForm(false)}
-        />
+        <StudioErrorBoundary onClose={() => setShowStoryForm(false)}>
+          <StoryForm
+            story={story}
+            onSave={handleSaveStory}
+            onClose={() => setShowStoryForm(false)}
+          />
+        </StudioErrorBoundary>
       )}
 
       {/* Chapter editor */}

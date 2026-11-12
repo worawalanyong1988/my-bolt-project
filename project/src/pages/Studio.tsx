@@ -4,6 +4,7 @@ import { useRouter } from '@/router';
 import { Cover } from '@/components/Cover';
 import { generateNovelCover } from '@/services/imagen';
 import { Modal } from '@/components/Modal';
+import { StudioErrorBoundary } from '@/components/StudioErrorBoundary';
 import { Toggle } from '@/components/Toggle';
 import { Badge } from '@/components/Badge';
 import { CATEGORIES, COVER_STYLES } from '@/mockData';
@@ -244,14 +245,19 @@ export function Studio({ onStatisticsOpen }: { onStatisticsOpen: () => void }) {
       )}
 
       {showForm && (
-        <StoryForm
-          story={editingStory}
-          onSave={handleSave}
-          onClose={() => {
-            setShowForm(false);
-            setEditingStory(null);
-          }}
-        />
+        <StudioErrorBoundary onClose={() => {
+          setShowForm(false);
+          setEditingStory(null);
+        }}>
+          <StoryForm
+            story={editingStory}
+            onSave={handleSave}
+            onClose={() => {
+              setShowForm(false);
+              setEditingStory(null);
+            }}
+          />
+        </StudioErrorBoundary>
       )}
 
       {/* Delete confirmation */}
@@ -379,6 +385,8 @@ export function StoryForm({
   const [templateCategory, setTemplateCategory] = useState<CoverTemplateCategory>('romance');
   const [templateOrientation, setTemplateOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [coverError, setCoverError] = useState<string | null>(null);
+  const templateCategoryLabel = COVER_TEMPLATE_CATEGORIES.find((item) => item.id === templateCategory)?.label
+    ?? COVER_TEMPLATE_CATEGORIES[0].label;
 
   const previewStory: Story = {
     id: story?.id || 'preview',
@@ -679,7 +687,7 @@ export function StoryForm({
               >
                 <img
                   src={templateOrientation === 'portrait' ? template.portraitUrl : template.landscapeUrl}
-                  alt={`ภาพปก ${item.label} แบบที่ ${index + 1}`}
+                  alt={`ภาพปก ${templateCategoryLabel} แบบที่ ${index + 1}`}
                   loading="lazy"
                   decoding="async"
                   className="h-full w-full object-cover"

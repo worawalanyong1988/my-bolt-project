@@ -53,9 +53,11 @@ function unsplashImage(photoId: string, orientation: 'portrait' | 'landscape'): 
   return `https://images.unsplash.com/${photoId}?auto=format&fit=crop&crop=entropy&${dimensions}&q=80`;
 }
 
-export function getCoverTemplates(category: CoverTemplateCategory) {
-  return templates[category].map((photoId, index) => ({
-    id: `${category}-${index + 1}`,
+export function getCoverTemplates(category?: string | null) {
+  const selectedCategory = COVER_TEMPLATE_CATEGORIES.find((item) => item.id === category)?.id
+    ?? COVER_TEMPLATE_CATEGORIES[0].id;
+  return templates[selectedCategory].map((photoId, index) => ({
+    id: `${selectedCategory}-${index + 1}`,
     portraitUrl: unsplashImage(photoId, 'portrait'),
     landscapeUrl: unsplashImage(photoId, 'landscape'),
   }));

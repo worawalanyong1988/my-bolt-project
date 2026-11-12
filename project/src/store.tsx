@@ -211,6 +211,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }, 200);
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+        window.clearTimeout(timeout);
+        timeout = window.setTimeout(() => {
+          void refreshRef.current(userRef.current).catch((error: unknown) => {
+            setPersistenceError(`ซิงก์ประวัติธุรกรรมจาก Supabase ไม่สำเร็จ: ${errorMessage(error)}`);
+          });
+        }, 200);
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'writer_notifications' }, () => {
         window.clearTimeout(timeout);
         timeout = window.setTimeout(() => {
@@ -458,6 +466,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await refreshRef.current(user);
   }, []);
 
+  const redeemVipDiscount = useCallback(async () => {
+    const user = userRef.current;
+    if (!supabaseClient || !user) throw new Error('กรุณาเข้าสู่ระบบก่อนแลกส่วนลด');
+    const result = await supabaseClient.rpc('redeem_vip_discount');
+    if (result.error) {
+      setPersistenceError(`แลกส่วนลดไม่สำเร็จ: ${errorMessage(result.error)}`);
+      throw result.error;
+    }
+    await refreshRef.current(user);
+  }, []);
+
   const getTips = useCallback(
     (chapterId: string) => state.tips.filter((tip) => tip.chapterId === chapterId),
     [state.tips],
@@ -615,17 +634,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
     const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) throw new Error(friendlyAuthError(error.message));
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, displayName: string) => {
     if (!supabaseClient) throw new Error(supabaseConfigError ?? 'Supabase ยังไม่ได้ตั้งค่า');
-    const { error } = await supabaseClient.auth.signUp({
+    const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName.trim() || 'คุณ' } },
+      options: {
+        data: { display_name: displayName.trim() || 'คุณ' },
+        emailRedirectTo: window.location.origin,
+      },
     });
-    if (error) throw error;
+    if (error) throw new Error(friendlyAuthError(error.message));
+    return data.session ? 'signed-in' as const : 'email-confirmation-required' as const;
   }, []);
 
   const signOut = useCallback(async () => {
@@ -653,6 +676,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     getComments,
     updateProfile,
     addDonation,
+    redeemVipDiscount,
     getTips,
     setAutoRenew,
     setReadingTheme,
@@ -671,4 +695,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+function friendlyAuthError(message: string): string {
+  const normalized = message.toLocaleLowerCase('en');
+  if (normalized.includes('invalid login credentials')) return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบแล้วลองอีกครั้ง';
+  if (normalized.includes('email not confirmed')) return 'กรุณายืนยันอีเมลจากลิงก์ในกล่องจดหมายก่อนเข้าสู่ระบบ';
+  if (normalized.includes('user already registered')) return 'อีเมลนี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบแทน';
+  if (normalized.includes('password should be at least') || normalized.includes('weak password')) return 'รหัสผ่านไม่ปลอดภัยพอ กรุณาตั้งรหัสผ่านที่มีอย่างน้อย 8 ตัวอักษร';
+  if (normalized.includes('invalid email')) return 'รูปแบบอีเมลไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
+  if (normalized.includes('rate limit')) return 'ส่งคำขอบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่';
+  if (normalized.includes('fetch') || normalized.includes('network')) return 'เชื่อมต่อไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง';
+  return message;
 }

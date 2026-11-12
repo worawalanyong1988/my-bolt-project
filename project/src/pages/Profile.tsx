@@ -14,6 +14,8 @@ import {
   HelpCircle,
   ImagePlus,
   Save,
+  Coins,
+  ReceiptText,
 } from 'lucide-react';
 
 export function Profile() {
@@ -29,10 +31,11 @@ export function Profile() {
       signIn,
       signUp,
       signOut,
+      redeemVipDiscount,
     } = useApp();
   const { navigate } = useRouter();
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  const [activePanel, setActivePanel] = useState<'notifications' | 'settings' | 'help' | 'logout' | null>(null);
+  const [activePanel, setActivePanel] = useState<'notifications' | 'transactions' | 'settings' | 'help' | 'logout' | null>(null);
   const [displayName, setDisplayName] = useState(state.profile.displayName);
   const [bio, setBio] = useState(state.profile.bio);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
@@ -41,6 +44,7 @@ export function Profile() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [redeemBusy, setRedeemBusy] = useState(false);
 
   useEffect(() => {
     setDisplayName(state.profile.displayName);
@@ -125,8 +129,11 @@ export function Profile() {
     setProfileMessage(null);
     try {
       if (authMode === 'sign-up') {
-        await signUp(authEmail.trim(), authPassword, displayName);
-        setProfileMessage('สมัครบัญชีสำเร็จ หากเปิดการยืนยันอีเมลใน Supabase โปรดตรวจอีเมลก่อนเข้าสู่ระบบ');
+        const result = await signUp(authEmail.trim(), authPassword, displayName);
+        setAuthPassword('');
+        setProfileMessage(result === 'email-confirmation-required'
+          ? 'สมัครบัญชีแล้ว กรุณาเปิดอีเมลและกดลิงก์ยืนยันก่อนเข้าสู่ระบบ หากไม่พบให้ตรวจสอบโฟลเดอร์สแปม'
+          : 'สมัครสมาชิกและเข้าสู่ระบบสำเร็จ');
       } else {
         await signIn(authEmail.trim(), authPassword);
         setAuthPassword('');
@@ -146,6 +153,27 @@ export function Profile() {
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : 'ออกจากระบบไม่สำเร็จ');
     }
+  };
+
+  const handleRedeemDiscount = async () => {
+    setRedeemBusy(true);
+    setProfileError(null);
+    setProfileMessage(null);
+    try {
+      await redeemVipDiscount();
+      setProfileMessage('แลกสำเร็จแล้ว ส่วนลด 20% จะใช้กับรอบ VIP เดือนถัดไป');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'แลกส่วนลดไม่สำเร็จ กรุณาลองอีกครั้ง');
+    } finally {
+      setRedeemBusy(false);
+    }
+  };
+
+  const transactionLabel = (type: string) => {
+    if (type === 'vip_subscription') return 'สมัคร / ต่ออายุสมาชิก VIP';
+    if (type === 'donation') return 'ส่งสติกเกอร์โดเนทให้นักเขียน';
+    if (type === 'coin_redemption') return 'แลก Coins เป็นส่วนลด VIP';
+    return 'รายการธุรกรรม';
   };
 
   return (
@@ -295,6 +323,31 @@ export function Profile() {
             <Crown size={22} className="text-amber-200" />
           </div>
         )}
+        {authUser && (
+          <div className={`relative mt-4 flex items-center justify-between gap-3 rounded-xl p-3 ${
+            state.isVIP ? 'bg-black/15 text-amber-50' : 'bg-white/70 text-charcoal'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Coins size={18} className={state.isVIP ? 'text-amber-200' : 'text-amber-600'} />
+              <div>
+                <p className="text-sm font-bold">{state.coins} Coins</p>
+                <p className={`text-[10px] ${state.isVIP ? 'text-white/70' : 'text-charcoal-muted'}`}>
+                  {state.isVIP ? 'VIP รับ 20 Coins ต่อรอบสมาชิกที่ยืนยันแล้ว และ 1 Coin ต่อโดเนททุก 10 บาท' : 'Coins สะสมจากการเป็นสมาชิก VIP'}
+                </p>
+              </div>
+            </div>
+            {state.isVIP && (
+              <button
+                type="button"
+                onClick={() => void handleRedeemDiscount()}
+                disabled={redeemBusy || state.coins < 100 || state.hasNextMonthDiscount}
+                className="shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-[10px] font-bold text-amber-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {state.hasNextMonthDiscount ? 'มีส่วนลดรอบถัดไปแล้ว' : redeemBusy ? 'กำลังแลก...' : 'แลก 100 Coins'}
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="mb-4 rounded-2xl border border-cream-200 bg-white p-4">
@@ -358,7 +411,15 @@ export function Profile() {
             </p>
             <p className="text-xs text-white/70 mt-0.5 line-through">จากปกติ 99 บาท</p>
             <p className="mt-3 rounded-xl bg-white/15 p-3 text-xs leading-relaxed text-white">
-              ระบบชำระเงินจริงยังไม่เปิดใช้ สถานะ VIP จะเปลี่ยนได้หลังยืนยันรายการจากระบบหลังบ้านเท่านั้น
+              สมาชิก VIP สะสม Coins ได้ เมื่อครบ 100 Coins แลกส่วนลดค่าสมาชิก 20% สำหรับรอบบิลเดือนถัดไป
+            </p>
+            {state.hasNextMonthDiscount && (
+              <p className="mt-2 rounded-xl bg-emerald-100/20 p-3 text-xs font-semibold text-white" role="status">
+                คุณมีส่วนลด VIP 20% สำหรับรอบบิลเดือนถัดไปแล้ว
+              </p>
+            )}
+            <p className="mt-2 text-[10px] text-white/75">
+              การสมัครและต่ออายุ VIP จะมีผลเมื่อระบบหลังบ้านยืนยันรายการชำระเงินแล้ว
             </p>
           </div>
         </div>
@@ -381,6 +442,14 @@ export function Profile() {
           subtitle={`${notifications.length} รายการล่าสุด`}
           onClick={() => setActivePanel('notifications')}
         />
+        {authUser && (
+          <MenuItem
+            icon={<ReceiptText size={20} />}
+            label="ประวัติการทำธุรกรรม"
+            subtitle={`${state.transactions.length} รายการ`}
+            onClick={() => setActivePanel('transactions')}
+          />
+        )}
         <MenuItem
           icon={<Moon size={20} />}
           label="โหมดกลางคืน"
@@ -412,6 +481,7 @@ export function Profile() {
         onClose={() => setActivePanel(null)}
         title={
           activePanel === 'notifications' ? 'การแจ้งเตือน' :
+          activePanel === 'transactions' ? 'ประวัติการทำธุรกรรม' :
           activePanel === 'settings' ? 'ตั้งค่า' :
           activePanel === 'help' ? 'ช่วยเหลือและสนับสนุน' : 'ออกจากระบบ'
         }
@@ -429,6 +499,53 @@ export function Profile() {
               </div>
             )) : (
               <p className="py-8 text-center text-sm text-charcoal-muted">ยังไม่มีการแจ้งเตือน</p>
+            )}
+          </div>
+        )}
+
+        {activePanel === 'transactions' && (
+          <div className="max-h-[65vh] space-y-3 overflow-y-auto">
+            {state.transactions.length ? state.transactions.map((transaction) => {
+              const details = transaction.details;
+              const detail = typeof details.description === 'string'
+                ? details.description
+                : typeof details.label === 'string'
+                ? details.label
+                : typeof details.story_title === 'string'
+                  ? details.story_title
+                  : typeof details.storyTitle === 'string'
+                    ? details.storyTitle
+                    : null;
+              const statusLabel = transaction.status === 'completed'
+                ? 'สำเร็จ'
+                : transaction.status === 'pending' ? 'รอตรวจสอบ' : 'ไม่สำเร็จ';
+              return (
+                <div key={transaction.id} className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-charcoal">{transactionLabel(transaction.type)}</p>
+                      {detail && <p className="mt-0.5 truncate text-xs text-charcoal-muted">{detail}</p>}
+                      <p className="mt-1 text-[10px] text-charcoal-muted">
+                        {new Date(transaction.createdAt).toLocaleString('th-TH')}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
+                      transaction.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                        transaction.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-charcoal">
+                    {transaction.amount > 0 && <span>ยอดเงิน ฿{transaction.amount.toLocaleString('th-TH')}</span>}
+                    {transaction.coins !== 0 && (
+                      <span className="text-amber-700">{transaction.coins > 0 ? '+' : ''}{transaction.coins} Coins</span>
+                    )}
+                  </div>
+                </div>
+              );
+            }) : (
+              <p className="py-8 text-center text-sm text-charcoal-muted">ยังไม่มีประวัติการทำธุรกรรม</p>
             )}
           </div>
         )}

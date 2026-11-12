@@ -5,11 +5,14 @@ interface CoverProps {
   story: Story;
   className?: string;
   rounded?: string;
+  variant?: 'portrait' | 'landscape';
 }
 
-export function Cover({ story, className = '', rounded = 'rounded-lg' }: CoverProps) {
+export function Cover({ story, className = '', rounded = 'rounded-lg', variant = 'portrait' }: CoverProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const imgUrl = story.coverAiUrl || story.coverImage;
+  const imgUrl = variant === 'landscape'
+    ? story.horizontalCoverUrl || story.coverAiUrl || story.coverImage
+    : story.coverAiUrl || story.coverImage;
 
   if (imgUrl && failedUrl !== imgUrl) {
     return (

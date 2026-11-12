@@ -48,6 +48,7 @@ export interface Story {
   coverColor: string; // gradient seed color
   coverPattern: string; // pattern type for AI-generated covers
   coverImage?: string; // data URL or remote URL for covers
+  horizontalCoverUrl?: string;
   coverAiUrl?: string; // AI-generated cover URL
   coverPrompt?: string;
   status: StoryStatus;
@@ -120,6 +121,18 @@ export interface VipSubscription {
   createdAt: number;
 }
 
+export type TransactionType = 'vip_subscription' | 'donation' | 'coin_redemption';
+
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  coins: number;
+  status: 'pending' | 'completed' | 'failed';
+  details: Record<string, unknown>;
+  createdAt: number;
+}
+
 export type WriterNotificationKind = 'comment' | 'like' | 'vip' | 'donation';
 
 export interface WriterNotification {
@@ -143,6 +156,9 @@ export interface AppState {
   profile: UserProfile;
   isVIP: boolean;
   autoRenew: boolean;
+  coins: number;
+  hasNextMonthDiscount: boolean;
+  transactions: Transaction[];
   readingTheme: ReadingTheme;
   fontFamily: FontFamily;
   fontSize: number;

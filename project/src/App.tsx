@@ -18,7 +18,9 @@ function AppContent() {
   const { route, navigate } = useRouter();
   const { state, persistenceError, authLoading, isWriter } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState('ทั้งหมด');
   const [statisticsAccess, setStatisticsAccess] = useState(false);
   const previousRoute = useRef<Route['name'] | null>(null);
   const handleTagSelect = useCallback((tag: string) => {
@@ -59,6 +61,8 @@ function AppContent() {
           <Home
             searchQuery={searchQuery}
             activeTag={activeTag}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
             onTagSelect={handleTagSelect}
             onTagClear={() => setActiveTag(null)}
             onSearchClear={() => setSearchQuery('')}
@@ -83,13 +87,15 @@ function AppContent() {
           <Home
             searchQuery={searchQuery}
             activeTag={activeTag}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
             onTagSelect={handleTagSelect}
             onTagClear={() => setActiveTag(null)}
             onSearchClear={() => setSearchQuery('')}
           />
         );
     }
-  }, [route, searchQuery, activeTag, statisticsAccess, handleTagSelect]);
+  }, [route, searchQuery, activeTag, activeCategory, statisticsAccess, handleTagSelect]);
 
   return (
     <div className="min-h-screen bg-cream-50">
@@ -97,6 +103,11 @@ function AppContent() {
         <Header
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          searchPanelOpen={searchPanelOpen}
+          onSearchFocus={() => setSearchPanelOpen(true)}
+          onSearchPanelClose={() => setSearchPanelOpen(false)}
+          activeCategory={activeCategory}
+          onCategorySelect={setActiveCategory}
           onProfileClick={() => navigate({ name: 'profile' })}
         />
       )}

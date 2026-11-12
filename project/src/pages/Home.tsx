@@ -11,6 +11,8 @@ import { CATEGORY_FILTERS as CAT_FILTERS } from '@/mockData';
 interface HomeProps {
   searchQuery: string;
   activeTag: string | null;
+  activeCategory: string;
+  onCategoryChange: (category: string) => void;
   onTagSelect: (tag: string) => void;
   onTagClear: () => void;
   onSearchClear: () => void;
@@ -18,11 +20,18 @@ interface HomeProps {
 
 type StorySort = 'recent' | 'views' | 'likes';
 
-export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearchClear }: HomeProps) {
+export function Home({
+  searchQuery,
+  activeTag,
+  activeCategory,
+  onCategoryChange,
+  onTagSelect,
+  onTagClear,
+  onSearchClear,
+}: HomeProps) {
   const { state, getStory } = useApp();
   const { navigate } = useRouter();
   const [carouselIdx, setCarouselIdx] = useState(0);
-  const [activeCategory, setActiveCategory] = useState<string>('ทั้งหมด');
   const [sortBy, setSortBy] = useState<StorySort>('recent');
 
   const publishedStories = useMemo(
@@ -43,7 +52,8 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
           story.synopsis.toLocaleLowerCase('th-TH').includes(query) ||
           story.category.toLocaleLowerCase('th-TH').includes(query) ||
           tags.some((tag) => tag.includes(query)));
-      return matchesSearch && (!tagQuery || tags.some((tag) => tag === tagQuery));
+      const matchesCategory = activeCategory === 'ทั้งหมด' || story.category === activeCategory;
+      return matchesSearch && matchesCategory && (!tagQuery || tags.some((tag) => tag === tagQuery));
     });
 
     return matches.sort((a, b) => {
@@ -51,7 +61,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
       if (sortBy === 'likes') return b.likeCount - a.likeCount;
       return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
     });
-  }, [activeTag, publishedStories, searchQuery, sortBy]);
+  }, [activeCategory, activeTag, publishedStories, searchQuery, sortBy]);
 
   // Auto-sliding carousel
   const featured = useMemo(() => publishedStories.slice(0, 3), [publishedStories]);
@@ -84,7 +94,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
       : publishedStories.filter((s) => s.category === activeCategory),
   );
 
-  const isFiltering = Boolean(searchQuery.trim() || activeTag);
+  const isFiltering = Boolean(searchQuery.trim() || activeTag || activeCategory !== 'ทั้งหมด');
   const sortControl = (
     <label className="flex items-center gap-2 text-xs font-medium text-charcoal-muted">
       เรียงตาม
@@ -106,7 +116,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-bold text-charcoal">
-              {activeTag ? 'นิยายตามแท็ก' : 'ผลการค้นหา'} ({filteredStories.length})
+              {activeTag && !searchQuery.trim() ? 'นิยายตามแท็ก' : 'ผลการค้นหา'} ({filteredStories.length})
             </h2>
             {activeTag && (
               <span className="inline-flex items-center gap-1 rounded-full bg-terracotta-50 px-3 py-1 text-xs font-semibold text-terracotta-700">
@@ -115,6 +125,16 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
                   <X size={14} />
                 </button>
               </span>
+            )}
+            {activeCategory !== 'ทั้งหมด' && (
+              <button
+                type="button"
+                onClick={() => onCategoryChange('ทั้งหมด')}
+                className="inline-flex items-center gap-1 rounded-full bg-cream-100 px-3 py-1 text-xs font-semibold text-charcoal hover:bg-cream-200"
+              >
+                {CAT_FILTERS.find((category) => category.value === activeCategory)?.label ?? activeCategory}
+                <X size={14} />
+              </button>
             )}
           </div>
           {sortControl}
@@ -125,6 +145,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
             <div className="mt-4 flex justify-center gap-2">
               {searchQuery.trim() && <button type="button" onClick={onSearchClear} className="rounded-full bg-terracotta-500 px-4 py-2 text-xs font-semibold text-white hover:bg-terracotta-600">ล้างคำค้นหา</button>}
               {activeTag && <button type="button" onClick={onTagClear} className="rounded-full bg-cream-200 px-4 py-2 text-xs font-semibold text-charcoal hover:bg-cream-300">ล้างตัวกรองแท็ก</button>}
+              {activeCategory !== 'ทั้งหมด' && <button type="button" onClick={() => onCategoryChange('ทั้งหมด')} className="rounded-full bg-cream-200 px-4 py-2 text-xs font-semibold text-charcoal hover:bg-cream-300">ล้างหมวดหมู่</button>}
             </div>
           </div>
         ) : (
@@ -153,7 +174,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
             >
               <div className="relative w-full h-full">
                 <div className="absolute inset-0 overflow-hidden">
-                  <Cover story={story} rounded="rounded-none" className="scale-110" />
+                  <Cover story={story} variant="landscape" rounded="rounded-none" className="scale-110" />
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-5 pb-6">
@@ -290,7 +311,7 @@ export function Home({ searchQuery, activeTag, onTagSelect, onTagClear, onSearch
             {CAT_FILTERS.map((cat) => (
               <button
                 key={cat.value}
-                onClick={() => setActiveCategory(cat.value)}
+                onClick={() => onCategoryChange(cat.value)}
                 className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
                   activeCategory === cat.value
                     ? 'bg-terracotta-500 text-white shadow-md'

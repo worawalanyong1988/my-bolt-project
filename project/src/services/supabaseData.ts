@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js';
-import type { AppState, Chapter, Comment, PaymentMethod, ReadingProgress, Story, Tip, UserProfile } from '@/types';
+import type { AppState, Chapter, Comment, PaymentMethod, ReadingProgress, Story, Tip, Transaction, UserProfile } from '@/types';
 import { getInitialState } from '@/mockData';
 import { supabaseClient } from './supabaseClient';
 
@@ -10,6 +10,7 @@ type StoryRow = {
   status: Story['status'];
   tags: string[];
   category: Story['category'];
+  horizontal_cover_url: string | null;
   read_count: number;
   like_count: number;
   bookmark_count: number;
@@ -40,6 +41,8 @@ type ProfileRow = {
   reading_theme: AppState['readingTheme'];
   font_family: AppState['fontFamily'];
   font_size: number;
+  coins: number;
+  has_next_month_discount: boolean;
 };
 
 function getChapterMetadata(chapter: Chapter): Omit<Chapter, 'content' | 'readCount'> {
@@ -82,6 +85,16 @@ type TipRow = {
   created_at: number;
 };
 
+type TransactionRow = {
+  id: string;
+  type: Transaction['type'];
+  amount: number;
+  coins: number;
+  status: Transaction['status'];
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
 function throwOnError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
 }
@@ -115,6 +128,9 @@ export function getEmptyAppState(): AppState {
     profile: { displayName: 'คุณ', bio: '' },
     isVIP: false,
     autoRenew: false,
+    coins: 0,
+    hasNextMonthDiscount: false,
+    transactions: [],
   };
 }
 
@@ -255,6 +271,14 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
         { data: [], error: null },
       ];
   userResults.forEach((result) => throwOnError(result.error));
+  const transactionRows = user
+    ? await loadAllRows<TransactionRow>((start, end) => client
+      .from('transactions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(start, end))
+    : [];
 
   const contentByChapter = new Map<string, string>(chapterContentRows.map((row) => [row.chapter_id, row.content]));
   const chaptersByStory = new Map<string, Chapter[]>();
@@ -278,6 +302,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
     status: row.status,
     tags: row.tags ?? [],
     category: row.category,
+    horizontalCoverUrl: row.horizontal_cover_url ?? row.data.horizontalCoverUrl,
     readCount: row.read_count,
     likeCount: row.like_count,
     bookmarkCount: row.bookmark_count,
@@ -342,11 +367,22 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
         message: row.message,
         createdAt: row.created_at,
       })),
+      transactions: transactionRows.map((row): Transaction => ({
+        id: row.id,
+        type: row.type,
+        amount: Number(row.amount),
+        coins: row.coins,
+        status: row.status,
+        details: row.details ?? {},
+        createdAt: new Date(row.created_at).getTime(),
+      })),
       profile: profile
         ? { displayName: profile.display_name, bio: profile.bio, avatarUrl: profile.avatar_url ?? undefined }
         : { displayName: 'คุณ', bio: '' },
       isVIP: profile?.is_vip ?? false,
       autoRenew: profile?.auto_renew ?? false,
+      coins: profile?.coins ?? 0,
+      hasNextMonthDiscount: profile?.has_next_month_discount ?? false,
       readingTheme: profile?.reading_theme ?? initial.readingTheme,
       fontFamily: profile?.font_family ?? initial.fontFamily,
       fontSize: profile?.font_size ?? initial.fontSize,
@@ -356,7 +392,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
 
 export async function saveStoryRemote(story: Story, userId: string): Promise<void> {
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
-  const { chapters, ...data } = story;
+  const { chapters, horizontalCoverUrl, ...data } = story;
   const storyResult = await supabaseClient.from('stories').upsert({
     id: story.id,
     author_id: userId,
@@ -364,6 +400,7 @@ export async function saveStoryRemote(story: Story, userId: string): Promise<voi
     status: story.status,
     tags: story.tags,
     category: story.category,
+    horizontal_cover_url: horizontalCoverUrl ?? null,
     data,
     created_at: story.createdAt,
     updated_at: story.updatedAt ?? Date.now(),

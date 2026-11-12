@@ -2,14 +2,29 @@ import { Search, User } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { useRouter } from '@/router';
 import { useApp } from '@/useApp';
+import { CATEGORY_FILTERS } from '@/mockData';
 
 interface HeaderProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  searchPanelOpen: boolean;
+  onSearchFocus: () => void;
+  onSearchPanelClose: () => void;
+  activeCategory: string;
+  onCategorySelect: (category: string) => void;
   onProfileClick?: () => void;
 }
 
-export function Header({ searchQuery, onSearchChange, onProfileClick }: HeaderProps) {
+export function Header({
+  searchQuery,
+  onSearchChange,
+  searchPanelOpen,
+  onSearchFocus,
+  onSearchPanelClose,
+  activeCategory,
+  onCategorySelect,
+  onProfileClick,
+}: HeaderProps) {
   const { navigate } = useRouter();
   const { state } = useApp();
 
@@ -32,8 +47,14 @@ export function Header({ searchQuery, onSearchChange, onProfileClick }: HeaderPr
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            onFocus={onSearchFocus}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') onSearchPanelClose();
+            }}
             placeholder="ค้นหานิยาย, แท็ก..."
             className="w-full h-10 pl-10 pr-4 rounded-full bg-cream-100 border border-cream-200 text-sm text-charcoal placeholder:text-charcoal-muted focus:outline-none focus:ring-2 focus:ring-terracotta-300 transition"
+            aria-expanded={searchPanelOpen}
+            aria-controls="search-category-panel"
           />
         </div>
 
@@ -48,6 +69,42 @@ export function Header({ searchQuery, onSearchChange, onProfileClick }: HeaderPr
           )}
         </button>
       </div>
+      {searchPanelOpen && (
+        <div id="search-category-panel" className="border-t border-cream-200 bg-white/95 shadow-lg">
+          <div className="max-w-5xl mx-auto px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-bold text-charcoal">เลือกหมวดหมู่นิยาย</p>
+              <button
+                type="button"
+                onClick={onSearchPanelClose}
+                className="text-xs font-medium text-charcoal-muted hover:text-charcoal"
+              >
+                ปิด
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {CATEGORY_FILTERS.map((category) => (
+                <button
+                  key={category.value}
+                  type="button"
+                  onClick={() => onCategorySelect(category.value)}
+                  aria-pressed={activeCategory === category.value}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    activeCategory === category.value
+                      ? 'bg-terracotta-500 text-white shadow-sm'
+                      : 'bg-cream-100 text-charcoal hover:bg-cream-200'
+                  }`}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-charcoal-muted">
+              พิมพ์ชื่อเรื่องหรือ #แท็ก เพื่อใช้ค้นหาร่วมกับหมวดหมู่
+            </p>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

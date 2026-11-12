@@ -8,6 +8,7 @@ import { Toggle } from '@/components/Toggle';
 import { Badge } from '@/components/Badge';
 import { CATEGORIES, COVER_STYLES } from '@/mockData';
 import type { Story, Category, AgeRating, StoryStatus } from '@/types';
+import { COVER_TEMPLATE_CATEGORIES, getCoverTemplates, type CoverTemplateCategory } from '@/data/coverTemplates';
 import {
   Plus,
   Pencil,
@@ -365,6 +366,7 @@ export function StoryForm({
   const coverColor = story?.coverColor || '#E07A5F';
   const coverPattern = story?.coverPattern || 'stars';
   const [coverImage, setCoverImage] = useState<string | undefined>(story?.coverImage);
+  const [horizontalCoverUrl, setHorizontalCoverUrl] = useState<string | undefined>(story?.horizontalCoverUrl);
   const [coverAiUrl, setCoverAiUrl] = useState<string | undefined>(story?.coverAiUrl);
   const [coverPrompt, setCoverPrompt] = useState(story?.coverPrompt || '');
   const [aiError, setAiError] = useState<string | null>(null);
@@ -373,6 +375,10 @@ export function StoryForm({
   const [coverStyle, setCoverStyle] = useState<string>('anime');
   const [showAiStudio, setShowAiStudio] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const horizontalFileRef = useRef<HTMLInputElement>(null);
+  const [templateCategory, setTemplateCategory] = useState<CoverTemplateCategory>('romance');
+  const [templateOrientation, setTemplateOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [coverError, setCoverError] = useState<string | null>(null);
 
   const previewStory: Story = {
     id: story?.id || 'preview',
@@ -386,6 +392,7 @@ export function StoryForm({
     coverColor,
     coverPattern,
     coverImage,
+    horizontalCoverUrl,
     coverAiUrl,
     status,
     isFree,
@@ -424,14 +431,33 @@ export function StoryForm({
     }
   };
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>, orientation: 'portrait' | 'landscape') => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+    setCoverError(null);
+    if (!file.type.startsWith('image/')) {
+      setCoverError('กรุณาเลือกไฟล์รูปภาพ');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setCoverError('ขนาดไฟล์ต้องไม่เกิน 8 MB');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
-      setCoverImage(reader.result as string);
-      setCoverAiUrl(undefined);
+      if (typeof reader.result !== 'string') {
+        setCoverError('อ่านไฟล์รูปภาพไม่สำเร็จ กรุณาลองอีกครั้ง');
+        return;
+      }
+      if (orientation === 'portrait') {
+        setCoverImage(reader.result);
+        setCoverAiUrl(undefined);
+      } else {
+        setHorizontalCoverUrl(reader.result);
+      }
     };
+    reader.onerror = () => setCoverError('อ่านไฟล์รูปภาพไม่สำเร็จ กรุณาลองอีกครั้ง');
     reader.readAsDataURL(file);
   };
 
@@ -449,6 +475,7 @@ export function StoryForm({
       coverColor,
       coverPattern,
       coverImage,
+      horizontalCoverUrl,
       coverAiUrl,
       coverPrompt: coverPrompt.trim(),
       status,
@@ -541,7 +568,7 @@ export function StoryForm({
               ref={fileRef}
               type="file"
               accept="image/*"
-              onChange={handleUpload}
+              onChange={(event) => handleUpload(event, 'portrait')}
               className="hidden"
             />
             {(coverImage || coverAiUrl) && (
@@ -558,6 +585,107 @@ export function StoryForm({
             )}
           </div>
         </div>
+
+        <section className="rounded-xl border border-cream-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold text-charcoal">ปกแนวนอนสำหรับแบนเนอร์</p>
+              <p className="mt-0.5 text-[10px] text-charcoal-muted">แสดงในแบนเนอร์แนะนำบนหน้าแรก</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => horizontalFileRef.current?.click()}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-cream-100 px-3 py-2 text-[10px] font-semibold text-charcoal hover:bg-cream-200"
+            >
+              <Upload size={13} />
+              อัปโหลดภาพแนวนอน
+            </button>
+            <input
+              ref={horizontalFileRef}
+              type="file"
+              accept="image/*"
+              onChange={(event) => handleUpload(event, 'landscape')}
+              className="hidden"
+            />
+          </div>
+          <div className="mt-3 aspect-[16/7] overflow-hidden rounded-lg bg-cream-100">
+            <Cover story={previewStory} variant="landscape" rounded="rounded-lg" />
+          </div>
+          {horizontalCoverUrl && (
+            <button
+              type="button"
+              onClick={() => setHorizontalCoverUrl(undefined)}
+              className="mt-2 inline-flex items-center gap-1 text-[10px] font-medium text-red-500 hover:text-red-700"
+            >
+              <X size={12} />
+              ลบภาพแนวนอน
+            </button>
+          )}
+          {coverError && <p className="mt-2 text-[10px] text-red-600" role="alert">{coverError}</p>}
+        </section>
+
+        <section className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+          <div>
+            <h3 className="text-xs font-bold text-charcoal">คลังรูปปกสำเร็จรูป</h3>
+            <p className="mt-0.5 text-[10px] text-charcoal-muted">เลือกภาพได้ทันที มี 5 แบบต่อหมวดหมู่ ทั้งแนวตั้งและแนวนอน</p>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {COVER_TEMPLATE_CATEGORIES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTemplateCategory(item.id)}
+                aria-pressed={templateCategory === item.id}
+                className={`rounded-full px-3 py-1.5 text-[10px] font-semibold ${
+                  templateCategory === item.id ? 'bg-terracotta-500 text-white' : 'bg-white text-charcoal hover:bg-cream-100'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2" role="group" aria-label="เลือกรูปแบบปก">
+            {(['portrait', 'landscape'] as const).map((orientation) => (
+              <button
+                key={orientation}
+                type="button"
+                onClick={() => setTemplateOrientation(orientation)}
+                aria-pressed={templateOrientation === orientation}
+                className={`rounded-lg px-3 py-1.5 text-[10px] font-semibold ${
+                  templateOrientation === orientation ? 'bg-charcoal text-white' : 'bg-white text-charcoal'
+                }`}
+              >
+                {orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {getCoverTemplates(templateCategory).map((template, index) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => {
+                  if (templateOrientation === 'portrait') {
+                    setCoverImage(template.portraitUrl);
+                    setCoverAiUrl(undefined);
+                  } else {
+                    setHorizontalCoverUrl(template.landscapeUrl);
+                  }
+                }}
+                aria-label={`เลือกภาพปกสำเร็จรูป ${index + 1} ${templateOrientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}`}
+                className={`overflow-hidden rounded-lg border-2 bg-white transition hover:border-terracotta-400 ${
+                  templateOrientation === 'portrait' ? 'aspect-[2/3]' : 'aspect-[16/9]'
+                }`}
+              >
+                <img
+                  src={templateOrientation === 'portrait' ? template.portraitUrl : template.landscapeUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        </section>
 
         <FormField label="ชื่อเรื่อง">
           <input

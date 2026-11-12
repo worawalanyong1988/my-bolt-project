@@ -44,13 +44,14 @@ export interface AppContextType {
       message: string;
     },
   ) => Promise<void>;
+  redeemVipDiscount: () => Promise<void>;
   getTips: (chapterId: string) => Tip[];
   setAutoRenew: (val: boolean) => void;
   setReadingTheme: (theme: AppState['readingTheme']) => void;
   setFontFamily: (font: AppState['fontFamily']) => void;
   setFontSize: (size: number) => void;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string) => Promise<'email-confirmation-required' | 'signed-in'>;
   signOut: () => Promise<void>;
   saveStory: (story: Story) => void;
   deleteStory: (storyId: string) => void;

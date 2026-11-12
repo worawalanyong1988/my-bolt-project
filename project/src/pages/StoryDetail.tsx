@@ -115,7 +115,7 @@ export function StoryDetail({ storyId, onTagSelect }: StoryDetailProps) {
       {/* Cinematic cover hero */}
       <div className="relative h-72 sm:h-80 overflow-hidden">
         <div className="absolute inset-0">
-          <Cover story={story} rounded="rounded-none" className="scale-110" />
+          <Cover story={story} variant="landscape" rounded="rounded-none" className="scale-110" />
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-cream-50 via-cream-50/30 to-black/30" />
         <div className="absolute inset-0 bg-gradient-to-r from-black/30 to-transparent" />

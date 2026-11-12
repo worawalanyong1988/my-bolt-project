@@ -14,12 +14,16 @@ create table if not exists public.profiles (
   avatar_url text,
   is_vip boolean not null default false,
   auto_renew boolean not null default false,
+  coins integer not null default 0 check (coins >= 0),
+  has_next_month_discount boolean not null default false,
   reading_theme text not null default 'paper' check (reading_theme in ('paper', 'sepia', 'night')),
   font_family text not null default 'plex' check (font_family in ('plex', 'sarabun')),
   font_size integer not null default 18 check (font_size between 14 and 28),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists coins integer not null default 0 check (coins >= 0);
+alter table public.profiles add column if not exists has_next_month_discount boolean not null default false;
 
 create or replace function public.create_profile_for_new_user()
 returns trigger
@@ -51,6 +55,7 @@ create table if not exists public.stories (
   status text not null check (status in ('published', 'draft')),
   tags text[] not null default '{}',
   category text not null default '',
+  horizontal_cover_url text,
   read_count bigint not null default 0 check (read_count >= 0),
   like_count bigint not null default 0 check (like_count >= 0),
   bookmark_count bigint not null default 0 check (bookmark_count >= 0),
@@ -58,6 +63,7 @@ create table if not exists public.stories (
   created_at bigint not null,
   updated_at bigint not null
 );
+alter table public.stories add column if not exists horizontal_cover_url text;
 
 create table if not exists public.chapters (
   id text primary key,
@@ -105,8 +111,10 @@ create table if not exists public.tips (
   sticker_emoji text,
   payment_method text not null check (payment_method in ('card', 'promptpay', 'wallet')),
   payment_status text not null default 'simulated' check (payment_status in ('simulated', 'paid')),
+  coins_rewarded boolean not null default false,
   created_at bigint not null
 );
+alter table public.tips add column if not exists coins_rewarded boolean not null default false;
 
 create table if not exists public.user_bookmarks (
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -136,6 +144,20 @@ create table if not exists public.vip_subscriptions (
   user_id uuid not null references public.profiles(id) on delete cascade,
   story_id text references public.stories(id) on delete set null,
   created_at bigint not null
+);
+
+create table if not exists public.transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  type text not null check (type in ('vip_subscription', 'donation', 'coin_redemption')),
+  amount numeric(10, 2) not null default 0 check (amount >= 0),
+  coins integer not null default 0,
+  status text not null check (status in ('pending', 'completed', 'failed')),
+  details jsonb not null default '{}'::jsonb,
+  source_type text not null,
+  source_id text not null,
+  created_at timestamptz not null default now(),
+  unique (source_type, source_id)
 );
 
 create table if not exists public.writer_notifications (
@@ -170,6 +192,7 @@ create index if not exists stories_tags_idx on public.stories using gin(tags);
 create index if not exists chapters_story_number_idx on public.chapters(story_id, number);
 create index if not exists comments_chapter_created_idx on public.comments(chapter_id, created_at desc);
 create index if not exists tips_story_created_idx on public.tips(story_id, created_at desc);
+create index if not exists transactions_user_created_idx on public.transactions(user_id, created_at desc);
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('profile-avatars', 'profile-avatars', true, 8388608, array['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -415,6 +438,175 @@ drop trigger if exists profile_vip_activation on public.profiles;
 create trigger profile_vip_activation after update of is_vip on public.profiles
   for each row execute procedure public.record_vip_activation();
 
+create or replace function public.record_vip_transaction()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  profile_row public.profiles%rowtype;
+  charge_amount numeric(10, 2);
+begin
+  select * into profile_row
+  from public.profiles
+  where id = new.user_id
+  for update;
+
+  charge_amount := case when profile_row.has_next_month_discount then 47.20 else 59.00 end;
+  update public.profiles
+  set coins = coins + 20,
+      has_next_month_discount = false,
+      updated_at = now()
+  where id = new.user_id;
+
+  insert into public.transactions(user_id, type, amount, coins, status, details, source_type, source_id)
+  values (
+    new.user_id,
+    'vip_subscription',
+    charge_amount,
+    20,
+    'completed',
+    jsonb_build_object(
+      'description', 'สมัครหรือต่ออายุสมาชิก VIP',
+      'discount_applied', profile_row.has_next_month_discount,
+      'discount_percent', case when profile_row.has_next_month_discount then 20 else 0 end
+    ),
+    'vip_subscription',
+    new.id
+  )
+  on conflict (source_type, source_id) do nothing;
+  return new;
+end;
+$$;
+drop trigger if exists vip_subscription_transaction on public.vip_subscriptions;
+create trigger vip_subscription_transaction after insert on public.vip_subscriptions
+  for each row execute procedure public.record_vip_transaction();
+
+create or replace function public.record_tip_transaction()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  story_title text;
+  vip_member boolean := false;
+  earned_coins integer := 0;
+  transaction_status text;
+begin
+  select title into story_title from public.stories where id = new.story_id;
+  transaction_status := case when new.payment_status = 'paid' then 'completed' else 'pending' end;
+
+  if new.payment_status = 'paid' and not new.coins_rewarded
+      and (tg_op = 'INSERT' or old.payment_status <> 'paid') then
+    select is_vip into vip_member from public.profiles where id = new.donor_id for update;
+    if coalesce(vip_member, false) then
+      earned_coins := floor(new.amount / 10.0)::integer;
+      update public.profiles
+      set coins = coins + earned_coins, updated_at = now()
+      where id = new.donor_id;
+      update public.tips set coins_rewarded = true where id = new.id;
+    end if;
+  end if;
+
+  insert into public.transactions as existing_transaction(user_id, type, amount, coins, status, details, source_type, source_id)
+  values (
+    new.donor_id,
+    'donation',
+    new.amount,
+    earned_coins,
+    transaction_status,
+    jsonb_build_object(
+      'label', new.label,
+      'story_title', coalesce(story_title, ''),
+      'payment_method', new.payment_method
+    ),
+    'tip',
+    new.id
+  )
+  on conflict (source_type, source_id) do update
+  set amount = excluded.amount,
+      coins = greatest(existing_transaction.coins, excluded.coins),
+      status = excluded.status,
+      details = excluded.details;
+  return new;
+end;
+$$;
+drop trigger if exists tip_transaction on public.tips;
+create trigger tip_transaction after insert or update of payment_status on public.tips
+  for each row execute procedure public.record_tip_transaction();
+
+insert into public.transactions(user_id, type, amount, coins, status, details, source_type, source_id, created_at)
+select
+  subscription.user_id,
+  'vip_subscription',
+  59.00,
+  0,
+  'completed',
+  jsonb_build_object('description', 'ประวัติสมาชิก VIP ก่อนเปิดใช้ Coins'),
+  'vip_subscription',
+  subscription.id,
+  to_timestamp(subscription.created_at / 1000.0)
+from public.vip_subscriptions subscription
+on conflict (source_type, source_id) do nothing;
+
+insert into public.transactions(user_id, type, amount, coins, status, details, source_type, source_id, created_at)
+select
+  tip.donor_id,
+  'donation',
+  tip.amount,
+  0,
+  case when tip.payment_status = 'paid' then 'completed' else 'pending' end,
+  jsonb_build_object(
+    'label', tip.label,
+    'story_title', coalesce(story.title, ''),
+    'payment_method', tip.payment_method
+  ),
+  'tip',
+  tip.id,
+  to_timestamp(tip.created_at / 1000.0)
+from public.tips tip
+left join public.stories story on story.id = tip.story_id
+on conflict (source_type, source_id) do nothing;
+
+create or replace function public.redeem_vip_discount()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  profile_row public.profiles%rowtype;
+  redemption_id text := gen_random_uuid()::text;
+begin
+  select * into profile_row
+  from public.profiles
+  where id = (select auth.uid())
+  for update;
+  if profile_row.id is null then raise exception 'Sign in is required'; end if;
+  if not profile_row.is_vip then raise exception 'VIP membership is required to redeem coins'; end if;
+  if profile_row.coins < 100 then raise exception 'At least 100 coins are required'; end if;
+  if profile_row.has_next_month_discount then raise exception 'A discount is already reserved for next month'; end if;
+
+  update public.profiles
+  set coins = coins - 100, has_next_month_discount = true, updated_at = now()
+  where id = profile_row.id;
+
+  insert into public.transactions(user_id, type, amount, coins, status, details, source_type, source_id)
+  values (
+    profile_row.id,
+    'coin_redemption',
+    0,
+    -100,
+    'completed',
+    jsonb_build_object('description', 'ส่วนลดค่าสมาชิก VIP 20% สำหรับรอบบิลเดือนถัดไป'),
+    'coin_redemption',
+    redemption_id
+  );
+end;
+$$;
+
 create or replace function public.reset_aksara_statistics()
 returns void
 language plpgsql
@@ -467,6 +659,7 @@ alter table public.user_bookmarks enable row level security;
 alter table public.user_likes enable row level security;
 alter table public.reading_progress enable row level security;
 alter table public.vip_subscriptions enable row level security;
+alter table public.transactions enable row level security;
 alter table public.writer_notifications enable row level security;
 alter table public.view_events enable row level security;
 alter table public.legacy_migrations enable row level security;
@@ -474,7 +667,13 @@ alter table public.legacy_migrations enable row level security;
 drop policy if exists "Profiles are readable by owner" on public.profiles;
 create policy "Profiles are readable by owner" on public.profiles for select to authenticated using (id = (select auth.uid()));
 drop policy if exists "Users can create their own profile" on public.profiles;
-create policy "Users can create their own profile" on public.profiles for insert to authenticated with check (id = (select auth.uid()) and role = 'reader' and is_vip = false);
+create policy "Users can create their own profile" on public.profiles for insert to authenticated with check (
+  id = (select auth.uid())
+  and role = 'reader'
+  and is_vip = false
+  and coins = 0
+  and has_next_month_discount = false
+);
 revoke update on public.profiles from anon, authenticated;
 grant update (display_name, bio, avatar_url, auto_renew, reading_theme, font_family, font_size, updated_at) on public.profiles to authenticated;
 drop policy if exists "Users update safe profile fields" on public.profiles;
@@ -539,6 +738,8 @@ drop policy if exists "Users manage own reading progress" on public.reading_prog
 create policy "Users manage own reading progress" on public.reading_progress for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 drop policy if exists "Users read own VIP subscriptions" on public.vip_subscriptions;
 create policy "Users read own VIP subscriptions" on public.vip_subscriptions for select to authenticated using (user_id = (select auth.uid()) or public.is_writer());
+drop policy if exists "Users read own transactions" on public.transactions;
+create policy "Users read own transactions" on public.transactions for select to authenticated using (user_id = (select auth.uid()));
 drop policy if exists "Writer reads notifications" on public.writer_notifications;
 create policy "Writer reads notifications" on public.writer_notifications for select to authenticated using (public.is_writer());
 drop policy if exists "No direct view event access" on public.view_events;
@@ -550,10 +751,10 @@ create policy "Writer manages own legacy migration marker" on public.legacy_migr
 
 revoke all on public.profiles, public.stories, public.chapters, public.chapter_contents,
   public.comments, public.tips, public.user_bookmarks, public.user_likes,
-  public.reading_progress, public.vip_subscriptions, public.writer_notifications,
+  public.reading_progress, public.vip_subscriptions, public.transactions, public.writer_notifications,
   public.view_events, public.legacy_migrations from anon, authenticated;
 revoke all on storage.objects from anon, authenticated;
-grant select (id, title, status, tags, category, read_count, like_count, bookmark_count, data, created_at, updated_at)
+grant select (id, title, status, tags, category, horizontal_cover_url, read_count, like_count, bookmark_count, data, created_at, updated_at)
   on public.stories to anon, authenticated;
 grant select on public.chapters, public.chapter_contents, public.comments to anon, authenticated;
 grant select (id, story_id, chapter_id, donor, amount, label, sticker_id, sticker_emoji, payment_method, payment_status, created_at)
@@ -565,6 +766,7 @@ grant select, insert on public.profiles to authenticated;
 grant update (display_name, bio, avatar_url, auto_renew, reading_theme, font_family, font_size, updated_at)
   on public.profiles to authenticated;
 grant select on public.vip_subscriptions, public.writer_notifications to authenticated;
+grant select on public.transactions to authenticated;
 grant select, insert, update on public.legacy_migrations to authenticated;
 grant insert, update, delete on public.stories, public.chapters, public.chapter_contents to authenticated;
 grant select on public.view_events to authenticated;
@@ -581,6 +783,9 @@ revoke all on function public.create_profile_for_new_user() from public, anon, a
 revoke all on function public.create_comment_notification() from public, anon, authenticated;
 revoke all on function public.create_like_notification() from public, anon, authenticated;
 revoke all on function public.record_vip_activation() from public, anon, authenticated;
+revoke all on function public.record_vip_transaction() from public, anon, authenticated;
+revoke all on function public.record_tip_transaction() from public, anon, authenticated;
+revoke all on function public.redeem_vip_discount() from public, anon;
 revoke all on function public.adjust_story_reaction_count() from public, anon, authenticated;
 revoke all on function public.create_aksara_comment(text, text, text, text, boolean, jsonb) from public, anon;
 revoke all on function public.create_tip_records(text, text, text, integer, text, text, text, text, text, text) from public, anon;
@@ -590,6 +795,7 @@ grant execute on function public.create_aksara_comment(text, text, text, text, b
 grant execute on function public.create_tip_records(text, text, text, integer, text, text, text, text, text, text) to authenticated;
 grant execute on function public.reset_aksara_statistics() to authenticated;
 grant execute on function public.reorder_aksara_chapters(text, text[]) to authenticated;
+grant execute on function public.redeem_vip_discount() to authenticated;
 
 -- Keep profile-private settings and writer notifications synchronized between devices.
 do $$
@@ -622,6 +828,11 @@ begin
   alter publication supabase_realtime add table public.writer_notifications;
 exception when duplicate_object then null;
 end $$;
+do $$
+begin
+  alter publication supabase_realtime add table public.transactions;
+exception when duplicate_object then null;
+end $$;
 
 -- Enable realtime for data displayed by all clients.
 do $$
@@ -649,5 +860,7 @@ end $$;
 -- update public.profiles set role = 'writer' where id = 'YOUR_WRITER_AUTH_USER_UUID';
 -- Set VIP only after a trusted payment flow/admin verification:
 -- update public.profiles set is_vip = true where id = 'YOUR_VIP_AUTH_USER_UUID';
+-- To record a verified renewal while VIP is already enabled, insert a row into
+-- public.vip_subscriptions from a trusted backend; the trigger awards Coins and logs the charge.
 -- Only mark a donation paid after a trusted server-side payment webhook verifies it:
 -- update public.tips set payment_status = 'paid' where id = 'VERIFIED_TIP_ID';

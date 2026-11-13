@@ -22,12 +22,12 @@ type StoryRow = {
 type ChapterRow = {
   id: string;
   story_id: string;
-  number: number;
-  status: Chapter['status'];
-  access: Chapter['access'];
-  read_count: number;
-  data: Omit<Chapter, 'readCount' | 'content'>;
-  created_at: number;
+  number: number | null;
+  status: string | null;
+  access: Chapter['access'] | null;
+  read_count: number | null;
+  data: Partial<Chapter> | null;
+  created_at: number | null;
 };
 
 type ProfileRow = {
@@ -110,6 +110,40 @@ function normalizeAgeRating(ageRating: Story['ageRating'] | undefined): Story['a
   return ageRating === '18+' ? '18+' : 'ทุกวัย';
 }
 
+function normalizeLegacyChapters(
+  chapters: unknown,
+  canReadUnpublished: boolean,
+  canReadVip: boolean,
+): Chapter[] {
+  if (!Array.isArray(chapters)) return [];
+
+  return chapters.flatMap((value, index): Chapter[] => {
+    if (!value || typeof value !== 'object') return [];
+    const data = value as Record<string, unknown>;
+    if (typeof data.id !== 'string' || !data.id) return [];
+
+    const status = normalizeStoryStatus(typeof data.status === 'string' ? data.status : undefined);
+    if (!canReadUnpublished && status !== 'published') return [];
+    const access = data.access === 'vip' ? 'vip' : 'free';
+    const content = typeof data.content === 'string' && (access === 'free' || canReadVip)
+      ? data.content
+      : '';
+
+    return [{
+      id: data.id,
+      number: typeof data.number === 'number' && Number.isFinite(data.number) ? data.number : index + 1,
+      title: typeof data.title === 'string' ? data.title : '',
+      content,
+      authorNote: typeof data.authorNote === 'string' ? data.authorNote : undefined,
+      status,
+      access,
+      readCount: typeof data.readCount === 'number' && Number.isFinite(data.readCount) ? data.readCount : 0,
+      wordCount: typeof data.wordCount === 'number' && Number.isFinite(data.wordCount) ? data.wordCount : undefined,
+      createdAt: typeof data.createdAt === 'number' && Number.isFinite(data.createdAt) ? data.createdAt : 0,
+    }];
+  });
+}
+
 async function loadAllRows<T>(
   fetchPage: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
 ): Promise<T[]> {
@@ -150,7 +184,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   const client = supabaseClient;
   const [storyRows, chapterRows, commentRows, tipRows] = await Promise.all([
     loadAllRows<StoryRow>((start, end) => client.from('stories').select('*').range(start, end)),
-    loadAllRows<ChapterRow>((start, end) => client.from('chapters').select('*').order('number', { ascending: true }).range(start, end)),
+    loadAllRows<ChapterRow>((start, end) => client.from('chapters').select('*').range(start, end)),
     loadAllRows<CommentRow>((start, end) => client.from('comments').select('*').order('created_at', { ascending: false }).range(start, end)),
     loadAllRows<TipRow>((start, end) => client.from('tips').select('*').order('created_at', { ascending: false }).range(start, end)),
   ]);
@@ -295,7 +329,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
     const chapter: Chapter = {
       ...(row.data ?? {}),
       id: row.id,
-      number: row.number,
+      number: row.number ?? row.data?.number ?? 0,
       title: row.data?.title ?? '',
       status: normalizeStoryStatus(row.status ?? row.data?.status),
       access: row.access === 'vip' || row.data?.access === 'vip' ? 'vip' : 'free',
@@ -306,28 +340,44 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
     chaptersByStory.set(row.story_id, [...(chaptersByStory.get(row.story_id) ?? []), chapter]);
   }
 
-  const stories = storyRows.map((row) => ({
-    ...(row.data ?? {}),
-    id: row.id,
-    title: row.title ?? row.data?.title ?? '',
-    penName: row.data?.penName ?? 'Aksara',
-    status: normalizeStoryStatus(row.status ?? row.data?.status),
-    tags: Array.isArray(row.tags) ? row.tags : Array.isArray(row.data?.tags) ? row.data.tags : [],
-    category: row.category ?? row.data?.category ?? '',
-    ageRating: normalizeAgeRating(row.data?.ageRating),
-    coverColor: row.data?.coverColor ?? '#E07A5F',
-    coverPattern: row.data?.coverPattern ?? 'stars',
-    isFree: row.data?.isFree ?? false,
-    horizontalCoverUrl: row.horizontal_cover_url || row.data?.horizontalCoverUrl || undefined,
-    readCount: row.read_count ?? row.data?.readCount ?? 0,
-    likeCount: row.like_count ?? row.data?.likeCount ?? 0,
-    bookmarkCount: row.bookmark_count ?? row.data?.bookmarkCount ?? 0,
-    synopsis: row.data?.synopsis ?? '',
-    intro: row.data?.intro ?? '',
-    createdAt: row.created_at ?? row.data?.createdAt ?? 0,
-    updatedAt: row.updated_at ?? row.data?.updatedAt,
-    chapters: chaptersByStory.get(row.id) ?? [],
-  }));
+  const stories = storyRows.map((row) => {
+    const status = normalizeStoryStatus(row.status ?? row.data?.status);
+    const isOwner = row.author_id === user?.id;
+    const canReadUnpublished = profile?.role === 'writer' || isOwner;
+    const legacyChapters = normalizeLegacyChapters(
+      row.data?.chapters,
+      canReadUnpublished,
+      canReadUnpublished || (profile?.is_vip ?? false),
+    );
+    const chaptersById = new Map(legacyChapters.map((chapter) => [chapter.id, chapter]));
+
+    for (const chapter of chaptersByStory.get(row.id) ?? []) {
+      chaptersById.set(chapter.id, chapter);
+    }
+
+    return {
+      ...(row.data ?? {}),
+      id: row.id,
+      title: row.title ?? row.data?.title ?? '',
+      penName: row.data?.penName ?? 'Aksara',
+      status,
+      tags: Array.isArray(row.tags) ? row.tags : Array.isArray(row.data?.tags) ? row.data.tags : [],
+      category: row.category ?? row.data?.category ?? '',
+      ageRating: normalizeAgeRating(row.data?.ageRating),
+      coverColor: row.data?.coverColor ?? '#E07A5F',
+      coverPattern: row.data?.coverPattern ?? 'stars',
+      isFree: row.data?.isFree ?? false,
+      horizontalCoverUrl: row.horizontal_cover_url || row.data?.horizontalCoverUrl || undefined,
+      readCount: row.read_count ?? row.data?.readCount ?? 0,
+      likeCount: row.like_count ?? row.data?.likeCount ?? 0,
+      bookmarkCount: row.bookmark_count ?? row.data?.bookmarkCount ?? 0,
+      synopsis: row.data?.synopsis ?? '',
+      intro: row.data?.intro ?? '',
+      createdAt: row.created_at ?? row.data?.createdAt ?? 0,
+      updatedAt: row.updated_at ?? row.data?.updatedAt,
+      chapters: [...chaptersById.values()].sort((a, b) => a.number - b.number),
+    };
+  });
   const comments: Comment[] = commentRows.map((row) => ({
     id: row.id,
     chapterId: row.chapter_id,
@@ -412,22 +462,15 @@ export async function loadChapterContentRemote(chapterId: string): Promise<{ con
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const result = await supabaseClient
     .from('chapter_contents')
-    .select('content,author_note')
+    .select('*')
     .eq('chapter_id', chapterId)
     .maybeSingle();
-  if (isMissingAuthorNoteColumn(result.error)) {
-    const legacyResult = await supabaseClient
-      .from('chapter_contents')
-      .select('content')
-      .eq('chapter_id', chapterId)
-      .maybeSingle();
-    throwOnError(legacyResult.error);
-    if (!legacyResult.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
-    return { content: legacyResult.data.content, authorNote: '' };
-  }
   throwOnError(result.error);
   if (!result.data) throw new Error('ไม่พบเนื้อหาตอนนี้หรือไม่มีสิทธิ์อ่าน');
-  return { content: result.data.content, authorNote: result.data.author_note ?? '' };
+  return {
+    content: typeof result.data.content === 'string' ? result.data.content : '',
+    authorNote: typeof result.data.author_note === 'string' ? result.data.author_note : '',
+  };
 }
 
 function isMissingAuthorNoteColumn(error: unknown): boolean {

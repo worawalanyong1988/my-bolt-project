@@ -71,6 +71,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     getTips,
     addDonation,
     authUser,
+    isWriter,
   } = useApp();
   const { navigate } = useRouter();
   const [showVipTerms, setShowVipTerms] = useState(false);
@@ -143,7 +144,16 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     setTranslatedContent(null);
     setTranslatedTitle(null);
 
-    if (!chapterIdToLoad || (chapterAccess === 'vip' && !state.isVIP)) {
+    if (!chapterIdToLoad || (chapterAccess === 'vip' && !state.isVIP && !isWriter)) {
+      setContentLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (chapter?.content) {
+      setChapterContent(chapter.content);
+      setChapterAuthorNote(chapter.authorNote ?? '');
       setContentLoading(false);
       return () => {
         active = false;
@@ -168,7 +178,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     return () => {
       active = false;
     };
-  }, [authUser?.id, chapterAccess, chapterIdToLoad, state.isVIP]);
+  }, [authUser?.id, chapter?.authorNote, chapter?.content, chapterAccess, chapterIdToLoad, isWriter, state.isVIP]);
 
   useEffect(() => {
     const handleBlur = () => setWindowFocused(false);
@@ -262,16 +272,14 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
     );
   }
 
-  const publishedChapters = story.chapters
-    .filter((c) => c.status === 'published')
-    .sort((a, b) => a.number - b.number);
-  const currentIdx = publishedChapters.findIndex((c) => c.id === chapterId);
-  const prevChapter = currentIdx > 0 ? publishedChapters[currentIdx - 1] : null;
+  const availableChapters = [...story.chapters].sort((a, b) => a.number - b.number);
+  const currentIdx = availableChapters.findIndex((c) => c.id === chapterId);
+  const prevChapter = currentIdx > 0 ? availableChapters[currentIdx - 1] : null;
   const nextChapter =
-    currentIdx < publishedChapters.length - 1 ? publishedChapters[currentIdx + 1] : null;
+    currentIdx < availableChapters.length - 1 ? availableChapters[currentIdx + 1] : null;
 
   const isVIPChapter = chapter.access === 'vip';
-  const locked = isVIPChapter && !state.isVIP;
+  const locked = isVIPChapter && !state.isVIP && !isWriter;
 
   const themeClass =
     state.readingTheme === 'sepia'
@@ -896,8 +904,8 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
         maxWidth="max-w-lg"
       >
         <div className="space-y-2">
-          {publishedChapters.map((item) => {
-            const itemLocked = item.access === 'vip' && !state.isVIP;
+          {availableChapters.map((item) => {
+          const itemLocked = item.access === 'vip' && !state.isVIP && !isWriter;
             return (
               <button
                 key={item.id}

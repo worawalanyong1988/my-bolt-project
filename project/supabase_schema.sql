@@ -717,6 +717,11 @@ create policy "Published chapters are public" on public.chapters for select to a
       and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
   )
   or public.is_writer()
+  or exists (
+    select 1 from public.stories s
+    where s.id = public.chapters.story_id
+      and s.author_id = (select auth.uid())
+  )
 );
 drop policy if exists "Only writer can write chapters" on public.chapters;
 create policy "Only writer can write chapters" on public.chapters for all to authenticated
@@ -731,6 +736,7 @@ create policy "Accessible chapter text is visible" on public.chapter_contents fo
       and c.story_id = public.chapter_contents.story_id
       and (
         public.is_writer()
+        or s.author_id = (select auth.uid())
         or (
           coalesce(nullif(btrim(c.status), ''), 'published') = 'published'
           and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'

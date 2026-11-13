@@ -33,7 +33,7 @@ interface StoryDetailProps {
 }
 
 export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProps) {
-  const { getStory, isBookmarked, toggleBookmark, toggleLike, state, recordStoryView, authUser } = useApp();
+  const { getStory, isBookmarked, toggleBookmark, toggleLike, state, recordStoryView, authUser, isWriter } = useApp();
   const { navigate, back } = useRouter();
   const [showPaywall, setShowPaywall] = useState(false);
   const [showVipTerms, setShowVipTerms] = useState(false);
@@ -60,10 +60,10 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
   }, [story, recordStoryView]);
 
   useEffect(() => {
-    if (!chapterId || !story || story.status !== 'published') return;
+    if (!chapterId || !story || (story.status !== 'published' && !isWriter)) return;
     const targetChapter = story.chapters.find((chapter) => chapter.id === chapterId);
-    if (!targetChapter || targetChapter.status !== 'published') return;
-    if (targetChapter.access === 'vip' && !state.isVIP) {
+    if (!targetChapter || (targetChapter.status !== 'published' && !isWriter)) return;
+    if (targetChapter.access === 'vip' && !state.isVIP && !isWriter) {
       setAcceptedVipTerms(false);
       setShowPaywall(true);
       return;
@@ -73,7 +73,7 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
     if (handledChapterLinkRef.current === linkKey) return;
     handledChapterLinkRef.current = linkKey;
     navigate({ name: 'reader', storyId: story.id, chapterId: targetChapter.id });
-  }, [chapterId, navigate, state.isVIP, story]);
+  }, [chapterId, isWriter, navigate, state.isVIP, story]);
 
   const handleShare = async () => {
     if (!story) return;
@@ -141,14 +141,12 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
     );
   }
 
-  const publishedChapters = story.chapters
-    .filter((c) => c.status === 'published')
-    .sort((a, b) => a.number - b.number);
+  const availableChapters = [...story.chapters].sort((a, b) => a.number - b.number);
   const bookmarked = isBookmarked(story.id);
   const synopsisLong = story.synopsis.length > 200;
 
   const handleChapterClick = (chapterId: string, isVIP: boolean) => {
-    if (isVIP && !state.isVIP) {
+    if (isVIP && !state.isVIP && !isWriter) {
       setAcceptedVipTerms(false);
       setShowPaywall(true);
       return;
@@ -156,7 +154,7 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
     navigate({ name: 'reader', storyId: story.id, chapterId });
   };
 
-  const firstChapter = publishedChapters[0];
+  const firstChapter = availableChapters[0];
 
   return (
     <div className="max-w-3xl mx-auto pb-8">
@@ -244,7 +242,7 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
             label="เก็บ"
             value={formatCount(story.bookmarkCount)}
           />
-          <Stat icon={<BookIcon />} label="ตอน" value={String(publishedChapters.length)} />
+          <Stat icon={<BookIcon />} label="ตอน" value={String(availableChapters.length)} />
         </div>
 
         {/* Action buttons */}
@@ -352,14 +350,14 @@ export function StoryDetail({ storyId, chapterId, onTagSelect }: StoryDetailProp
             <h2 className="text-sm font-bold text-charcoal">
               {isEn ? 'Chapters' : 'ตอนทั้งหมด'}
               <span className="text-charcoal-muted font-normal ml-1">
-                ({publishedChapters.length})
+                ({availableChapters.length})
               </span>
             </h2>
           </div>
           <div className="space-y-2">
-            {publishedChapters.map((chapter) => {
+            {availableChapters.map((chapter) => {
               const isVIPChapter = chapter.access === 'vip';
-              const locked = isVIPChapter && !state.isVIP;
+              const locked = isVIPChapter && !state.isVIP && !isWriter;
               return (
                 <button
                   key={chapter.id}

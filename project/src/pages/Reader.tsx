@@ -76,7 +76,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
   const [showVipTerms, setShowVipTerms] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showChapterList, setShowChapterList] = useState(false);
-  const [stickerTab, setStickerTab] = useState<'emoji' | 'art'>('emoji');
+  const [stickerTab, setStickerTab] = useState<'emoji' | 'art'>('art');
   const [showStickers, setShowStickers] = useState(false);
   const [tipSuccess, setTipSuccess] = useState<string | null>(null);
   const [donationError, setDonationError] = useState<string | null>(null);
@@ -316,12 +316,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
       navigate({ name: 'profile' });
       return;
     }
-    const sticker = { id: stickerId, type };
-    if (commentText.trim()) {
-      setSelectedSticker(sticker);
-    } else {
-      void addComment(story.id, chapter.id, '', sticker).catch(() => undefined);
-    }
+    setSelectedSticker({ id: stickerId, type });
     setShowStickers(false);
   };
 
@@ -796,14 +791,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
               {showStickers && (
                 <div className="mb-4 bg-black/5 rounded-2xl p-3 animate-slide-down">
                   <div className="mb-3">
-                    <p className="text-xs font-bold text-charcoal">สติกเกอร์คอมเมนต์ฟรี</p>
+                    <p className="text-xs font-bold text-charcoal">แก๊งเหมียว Aksara · 12 อารมณ์</p>
                     <p className="mt-1 text-[10px] text-charcoal-muted">
-                      แตะเพื่อส่งได้เลย หรือพิมพ์ข้อความก่อนเพื่อแนบสติกเกอร์
+                      เลือกสติกเกอร์แล้วกดส่ง หรือพิมพ์ข้อความเพื่อส่งไปพร้อมกัน
                     </p>
                   </div>
                   {/* Tab switcher */}
                   <div className="flex gap-2 mb-3">
                     <button
+                      type="button"
                       onClick={() => setStickerTab('emoji')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${
                         stickerTab === 'emoji'
@@ -815,6 +811,7 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                       อารมณ์ฟรี
                     </button>
                     <button
+                      type="button"
                       onClick={() => setStickerTab('art')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${
                         stickerTab === 'art'
@@ -851,10 +848,15 @@ export function Reader({ storyId, chapterId }: ReaderProps) {
                           onClick={() => handleStickerClick(sticker.id, 'art')}
                           title={sticker.label}
                           aria-label={`ส่งสติกเกอร์ ${sticker.label}`}
-                          className="bg-white rounded-xl p-1.5 hover:shadow-md transition active:scale-95 flex flex-col items-center"
+                          aria-pressed={selectedSticker?.id === sticker.id && selectedSticker.type === 'art'}
+                          className={`flex flex-col items-center rounded-xl border bg-white p-2 text-center transition hover:-translate-y-0.5 hover:shadow-md active:scale-95 ${
+                            selectedSticker?.id === sticker.id && selectedSticker.type === 'art'
+                              ? 'border-terracotta-400 ring-2 ring-terracotta-200'
+                              : 'border-transparent'
+                          }`}
                         >
-                          <ReactionStickerPreview sticker={{ id: sticker.id, type: 'art' }} className="w-full aspect-square" />
-                          <span className="text-[8px] text-charcoal-muted mt-0.5 line-clamp-1">
+                          <ReactionStickerPreview sticker={{ id: sticker.id, type: 'art' }} className="aspect-square w-full" />
+                          <span className="mt-1 min-h-8 text-[10px] font-medium leading-tight text-charcoal-muted">
                             {sticker.label}
                           </span>
                         </button>

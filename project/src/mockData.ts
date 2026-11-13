@@ -265,67 +265,120 @@ export const STICKERS: { id: string; emoji: string; label: string }[] = [
   { id: 'thumbsup', emoji: '👍', label: 'เยี่ยม' },
 ];
 
-// Illustrated sticker designs (SVG-based cute reaction stickers)
+function makeAksaraSticker(expression: string, accents = ''): string {
+  return `<svg viewBox="0 0 120 120" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+    <path d="M60 4a50 50 0 1 0 0 100 50 50 0 0 0 0-100Z" fill="#FFF4D8"/>
+    ${accents}
+    <path d="M77 83c18-1 22 17 10 21-7 2-10-4-7-8" fill="none" stroke="#D97845" stroke-width="6" stroke-linecap="round"/>
+    <path d="M34 77c-8 9-5 24 6 29h40c11-5 14-20 6-29Z" fill="#F28C52" stroke="#C9634A" stroke-width="2"/>
+    <path d="M46 81c4 8 24 8 28 0v24H46Z" fill="#FFF7E9"/>
+    <path d="M30 48 23 19l27 15M69 34l28-15-8 31" fill="#F28C52" stroke="#C9634A" stroke-width="3" stroke-linejoin="round"/>
+    <path d="m31 39-2-12 12 7m37 5 12-8-3 15" fill="#F6B5A2"/>
+    <ellipse cx="60" cy="54" rx="35" ry="31" fill="#F28C52" stroke="#C9634A" stroke-width="2"/>
+    <path d="M34 59c3-13 15-20 26-20s23 7 26 20c-4 14-15 21-26 21S38 73 34 59Z" fill="#FFF2DF"/>
+    <path d="M49 32q11-10 22 0" fill="none" stroke="#D97845" stroke-width="5" stroke-linecap="round"/>
+    ${expression}
+    <path d="M41 101q-9-9-15-2c-4 6 2 11 15 11m38-9q9-9 15-2c4 6-2 11-15 11" fill="#FFF2DF" stroke="#C9634A" stroke-width="2" stroke-linecap="round"/>
+  </svg>`;
+}
+
+// Original Aksara cat mascot stickers, drawn as inline vector artwork.
 export const ART_STICKERS: { id: string; label: string; svg: string }[] = [
   {
-    id: 'heart-rain',
-    label: 'ปาหัวใจรัวๆ',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text x="50" y="35" font-size="22" text-anchor="middle">💖💓💕</text><text x="50" y="65" font-size="14" text-anchor="middle" fill="#E07A5F" font-weight="bold">ปาหัวใจ</text><text x="50" y="80" font-size="14" text-anchor="middle" fill="#E07A5F" font-weight="bold">รัวๆ</text></svg>`,
-  },
-  {
-    id: 'shock-mouth',
-    label: 'ค้างมากแม่!',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="40" r="25" fill="#FBE3DC"/><circle cx="42" cy="35" r="4" fill="#2B2B2B"/><circle cx="58" cy="35" r="4" fill="#2B2B2B"/><ellipse cx="50" cy="52" rx="8" ry="12" fill="#2B2B2B"/><text x="50" y="82" font-size="11" text-anchor="middle" fill="#E07A5F" font-weight="bold">ค้างมากแม่!</text></svg>`,
+    id: 'laugh-out',
+    label: 'ขำไม่ไหว',
+    svg: makeAksaraSticker(
+      `<path d="M43 51q6-8 12 0m10 0q6-8 12 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M49 61q11-4 22 0-2 13-11 13t-11-13Z" fill="#7B3743"/><path d="M55 64h10v4H55Z" fill="#fff"/>`,
+      `<path d="m24 48-10-5m81 5 10-5m-8 22 8 3M20 67l-8 3" stroke="#F0A72F" stroke-width="4" stroke-linecap="round"/><path d="m22 34 4 5m67-5-4 5" stroke="#70B7D6" stroke-width="4" stroke-linecap="round"/>`,
+    ),
   },
   {
     id: 'cry-heavy',
-    label: 'ร้องไห้หนักมาก',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="40" r="25" fill="#FBE3DC"/><path d="M38 35 Q40 38 42 35" stroke="#2B2B2B" stroke-width="2" fill="none"/><path d="M58 35 Q60 38 62 35" stroke="#2B2B2B" stroke-width="2" fill="none"/><path d="M42 50 Q50 55 58 50" stroke="#2B2B2B" stroke-width="2" fill="none"/><path d="M38 48 L36 60" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round"/><path d="M62 48 L64 60" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round"/><text x="50" y="82" font-size="10" text-anchor="middle" fill="#E07A5F" font-weight="bold">ร้องไห้หนักมาก</text></svg>`,
-  },
-  {
-    id: 'fin-jig',
-    label: 'ฟินจิกหมอน',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="40" r="25" fill="#FBE3DC"/><path d="M36 35 Q38 32 40 35" stroke="#2B2B2B" stroke-width="2" fill="none"/><path d="M60 35 Q62 32 64 35" stroke="#2B2B2B" stroke-width="2" fill="none"/><path d="M42 50 Q50 48 58 50" stroke="#E07A5F" stroke-width="2.5" fill="none"/><text x="30" y="25" font-size="12" fill="#E07A5F">✨</text><text x="65" y="30" font-size="10" fill="#E07A5F">💫</text><text x="50" y="82" font-size="11" text-anchor="middle" fill="#E07A5F" font-weight="bold">ฟินจิกหมอน</text></svg>`,
-  },
-  {
-    id: 'wait-next',
-    label: 'รอตอนต่อไป',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="40" r="25" fill="#FBE3DC"/><circle cx="42" cy="35" r="4" fill="#2B2B2B"/><circle cx="58" cy="35" r="4" fill="#2B2B2B"/><path d="M42 50 Q50 53 58 50" stroke="#2B2B2B" stroke-width="2" fill="none"/><text x="50" y="72" font-size="10" text-anchor="middle" fill="#E07A5F">⏳</text><text x="50" y="85" font-size="9" text-anchor="middle" fill="#E07A5F" font-weight="bold">รอตอนต่อไป</text></svg>`,
-  },
-  {
-    id: 'pay-rain',
-    label: 'เปย์รัวๆ',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text x="50" y="30" font-size="16" text-anchor="middle">💰💵💸</text><circle cx="50" cy="55" r="18" fill="#FBE3DC"/><circle cx="44" cy="52" r="3" fill="#2B2B2B"/><circle cx="56" cy="52" r="3" fill="#2B2B2B"/><path d="M44 62 Q50 65 56 62" stroke="#E07A5F" stroke-width="2" fill="none"/><text x="50" y="88" font-size="11" text-anchor="middle" fill="#E07A5F" font-weight="bold">เปย์รัวๆ</text></svg>`,
-  },
-  {
-    id: 'support',
-    label: 'สู้ๆนะ',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="38" r="22" fill="#FBE3DC"/><circle cx="43" cy="34" r="3" fill="#2B2B2B"/><circle cx="57" cy="34" r="3" fill="#2B2B2B"/><path d="M43 45 Q50 50 57 45" stroke="#2B2B2B" stroke-width="2" fill="none"/><text x="35" y="70" font-size="16" fill="#E07A5F">💪</text><text x="50" y="85" font-size="11" text-anchor="middle" fill="#E07A5F" font-weight="bold">สู้ๆนะ</text></svg>`,
-  },
-  {
-    id: 'love-story',
-    label: 'รักเรื่องนี้',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><text x="50" y="30" font-size="20" text-anchor="middle">📚❤️</text><circle cx="50" cy="58" r="18" fill="#FBE3DC"/><circle cx="44" cy="55" r="3" fill="#2B2B2B"/><circle cx="56" cy="55" r="3" fill="#2B2B2B"/><path d="M42 65 Q50 68 58 65" stroke="#E07A5F" stroke-width="2" fill="none"/><text x="50" y="90" font-size="10" text-anchor="middle" fill="#E07A5F" font-weight="bold">รักเรื่องนี้</text></svg>`,
+    label: 'ตับพัง ดราม่าหนักมาก',
+    svg: makeAksaraSticker(
+      `<path d="M43 50q5 6 10 0m12 0q5 6 10 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M53 66q7-7 14 0-7 9-14 0Z" fill="#7B3743"/><path d="M42 54c-8 12-8 18 0 18s8-6 0-18m36 0c-8 12-8 18 0 18s8-6 0-18" fill="#69C9ED" stroke="#2D9FCB" stroke-width="2"/><path d="M51 83q9 7 18 0" fill="none" stroke="#69C9ED" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M17 81q8-11 16 0t16 0m20 0q8-11 16 0t16 0" fill="none" stroke="#69C9ED" stroke-width="4" stroke-linecap="round"/>`,
+    ),
   },
   {
     id: 'blushing',
-    label: 'เขินตัวบิด',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="29" fill="#FBE3DC"/><path d="M36 40 Q39 34 42 40 M58 40 Q61 34 64 40" stroke="#2B2B2B" stroke-width="3" fill="none"/><circle cx="36" cy="51" r="5" fill="#E98A91" opacity=".8"/><circle cx="64" cy="51" r="5" fill="#E98A91" opacity=".8"/><path d="M44 55 Q50 61 56 55" stroke="#E07A5F" stroke-width="2.5" fill="none"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#E07A5F" font-weight="bold">เขินตัวบิด</text></svg>`,
-  },
-  {
-    id: 'laugh-out',
-    label: 'ขำกลิ้ง',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="44" r="28" fill="#FFF0B8"/><path d="M34 38 Q39 31 44 38 M56 38 Q61 31 66 38" stroke="#2B2B2B" stroke-width="3" fill="none"/><path d="M36 49 Q50 69 64 49 Q50 55 36 49Z" fill="#E07A5F"/><path d="M29 34 L22 29 M71 34 L78 29" stroke="#E07A5F" stroke-width="3" stroke-linecap="round"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#C9634A" font-weight="bold">ขำกลิ้ง</text></svg>`,
+    label: 'ฟินจิกหมอน',
+    svg: makeAksaraSticker(
+      `<path d="M43 52q5-7 10 0m12 0q5-7 10 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><circle cx="43" cy="61" r="6" fill="#F28B91" opacity=".8"/><circle cx="77" cy="61" r="6" fill="#F28B91" opacity=".8"/><path d="M54 63q6 8 12 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="m25 39 3-7 3 7 7 3-7 3-3 7-3-7-7-3Zm64 2 2-5 2 5 5 2-5 2-2 5-2-5-5-2Z" fill="#FFCF5A"/><path d="m30 69-5 5m71-8 5 5" stroke="#F28B91" stroke-width="3" stroke-linecap="round"/>`,
+    ),
   },
   {
     id: 'angry-reader',
-    label: 'โกรธแทนแล้ว',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="28" fill="#F9C6B9"/><path d="M34 35 L45 40 M66 35 L55 40" stroke="#2B2B2B" stroke-width="3" stroke-linecap="round"/><circle cx="40" cy="47" r="3" fill="#2B2B2B"/><circle cx="60" cy="47" r="3" fill="#2B2B2B"/><path d="M40 62 Q50 53 60 62" stroke="#C9634A" stroke-width="3" fill="none"/><path d="M72 21 L76 29 L84 31 L77 36 L78 45 L72 40 L65 44 L67 35 L61 30 L69 29Z" fill="#E07A5F"/><text x="50" y="88" font-size="11" text-anchor="middle" fill="#C9634A" font-weight="bold">โกรธแทนแล้ว</text></svg>`,
+    label: 'หยุมหัวตัวร้าย',
+    svg: makeAksaraSticker(
+      `<path d="m42 47 12 5m24-5-12 5" stroke="#56392E" stroke-width="4" stroke-linecap="round"/><ellipse cx="49" cy="57" rx="3" ry="5" fill="#56392E"/><ellipse cx="71" cy="57" rx="3" ry="5" fill="#56392E"/><path d="M54 70q6-7 12 0" fill="none" stroke="#9E3D38" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M30 24c-9-8-17 2-8 10-8 7 1 16 9 8 7 8 16-1 8-9 8-8-1-16-9-9Z" fill="#F27B57"/><path d="M92 25c-7-8-15 0-8 7-7 7 1 14 8 7 7 7 14-1 7-8 7-7-1-14-7-6Z" fill="#F6A23D"/><path d="M19 54h9m64 0h9" stroke="#E66A4E" stroke-width="4" stroke-linecap="round"/>`,
+    ),
   },
   {
-    id: 'nervous',
-    label: 'ลุ้นระทึก',
-    svg: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="45" r="28" fill="#E6F2F1"/><circle cx="40" cy="42" r="4" fill="#2B2B2B"/><circle cx="60" cy="42" r="4" fill="#2B2B2B"/><ellipse cx="50" cy="57" rx="5" ry="7" fill="#2B2B2B"/><path d="M29 29 L24 23 M71 29 L76 23 M50 12 L50 19" stroke="#5B9BD5" stroke-width="3" stroke-linecap="round"/><text x="50" y="88" font-size="12" text-anchor="middle" fill="#2C5F7C" font-weight="bold">ลุ้นระทึก</text></svg>`,
+    id: 'shock-mouth',
+    label: 'หักมุมเกินไป!',
+    svg: makeAksaraSticker(
+      `<ellipse cx="49" cy="52" rx="7" ry="10" fill="#fff" stroke="#56392E" stroke-width="2"/><ellipse cx="71" cy="52" rx="7" ry="10" fill="#fff" stroke="#56392E" stroke-width="2"/><circle cx="50" cy="55" r="3" fill="#56392E"/><circle cx="70" cy="55" r="3" fill="#56392E"/><ellipse cx="60" cy="69" rx="6" ry="9" fill="#7B3743"/>`,
+      `<path d="m25 30 5-8 5 8 9 2-7 6 1 9-8-5-8 5 2-9-7-6Zm66 7 3-6 4 6 7 1-5 5 1 7-7-4-6 4 1-7-5-5Z" fill="#FFCB55"/>`,
+    ),
+  },
+  {
+    id: 'thumbsup',
+    label: 'เอาไปเลยเต็มสิบ',
+    svg: makeAksaraSticker(
+      `<path d="M43 53q6-5 11 1m11-1q6-5 11 1" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M53 65q7 8 14 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/><path d="M85 76V58q0-5 5-5t5 5v8l4-3q5-3 7 2 1 3-2 6l-9 12H84Z" fill="#FFD29A" stroke="#C9634A" stroke-width="2" stroke-linejoin="round"/>`,
+      `<path d="m25 44 3-7 3 7 7 3-7 3-3 7-3-7-7-3Zm66-23 2-5 2 5 5 2-5 2-2 5-2-5-5-2Z" fill="#FFCB55"/><text x="60" y="96" text-anchor="middle" font-size="10" font-weight="bold" fill="#C9634A">10/10</text>`,
+    ),
+  },
+  {
+    id: 'wai-thanks',
+    label: 'กราบไรท์เตอร์',
+    svg: makeAksaraSticker(
+      `<path d="M43 51q5-5 10 0m14 0q5-5 10 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M54 66q6 6 12 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/><path d="M58 74 48 64q-4-4-7 0-2 3 1 6l16 15 16-15q3-3 0-6-3-3-7 0L60 74" fill="#FFD29A" stroke="#C9634A" stroke-width="2" stroke-linejoin="round"/>`,
+      `<path d="m27 28 3-7 3 7 7 3-7 3-3 7-3-7-7-3Zm60 3 2-5 2 5 5 2-5 2-2 5-2-5-5-2Z" fill="#FFCB55"/>`,
+    ),
+  },
+  {
+    id: 'heart-rain',
+    label: 'คลั่งรักเรื่องนี้',
+    svg: makeAksaraSticker(
+      `<path d="M43 52q6-8 12 0m10 0q6-8 12 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M52 64q8 11 16 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M28 34c-7-8-17 1-8 9l8 7 8-7c9-8-1-17-8-9Zm63-13c-5-6-13 1-7 7l7 6 7-6c6-6-2-13-7-7ZM23 70c-5-6-13 1-7 7l7 6 7-6c6-6-2-13-7-7Zm75-13c-5-6-13 1-7 7l7 6 7-6c6-6-2-13-7-7Z" fill="#F27691"/><path d="m48 28 3-6 3 6 6 3-6 3-3 6-3-6-6-3Z" fill="#FFCB55"/>`,
+    ),
+  },
+  {
+    id: 'pleading',
+    label: 'มาต่อเร็วๆ น้า',
+    svg: makeAksaraSticker(
+      `<ellipse cx="49" cy="52" rx="7" ry="9" fill="#fff" stroke="#56392E" stroke-width="2"/><ellipse cx="71" cy="52" rx="7" ry="9" fill="#fff" stroke="#56392E" stroke-width="2"/><circle cx="50" cy="54" r="3" fill="#56392E"/><circle cx="70" cy="54" r="3" fill="#56392E"/><circle cx="47" cy="49" r="2" fill="#fff"/><circle cx="68" cy="49" r="2" fill="#fff"/><path d="M55 68q5-5 10 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M26 50c-7 11-7 16 0 16s7-5 0-16m69 0c-7 11-7 16 0 16s7-5 0-16" fill="#69C9ED" stroke="#2D9FCB" stroke-width="2"/><path d="M42 36q7-7 14 0m8 0q7-7 14 0" fill="none" stroke="#C9634A" stroke-width="2.5" stroke-linecap="round"/>`,
+    ),
+  },
+  {
+    id: 'cheer-team',
+    label: 'ทีมพระเอก/นายเอก',
+    svg: makeAksaraSticker(
+      `<path d="M43 51q6-7 12 0m10 0q6-7 12 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M53 64q7 9 14 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/><path d="m40 79-11-15 8-4 15 13m26 6 11-15-8-4-15 13" fill="#FFD29A" stroke="#C9634A" stroke-width="2" stroke-linejoin="round"/><rect x="27" y="6" width="66" height="22" rx="8" fill="#F27691" stroke="#C9634A" stroke-width="2"/><text x="60" y="21" text-anchor="middle" font-size="10" font-weight="bold" fill="#fff">ทีมนี้!</text>`,
+      `<path d="m20 33 3-6 3 6 6 2-5 4 1 6-5-3-5 3 1-6-5-4Z M91 38l2-5 2 5 5 2-4 3 1 5-4-2-4 2 1-5-4-3Z" fill="#FFDD70"/>`,
+    ),
+  },
+  {
+    id: 'side-eye',
+    label: 'หมั่นไส้ตัวอิจฉา',
+    svg: makeAksaraSticker(
+      `<path d="M42 49q6-3 12 1m10 1q7-8 14-2" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><ellipse cx="50" cy="57" rx="3" ry="4" fill="#56392E"/><ellipse cx="72" cy="55" rx="3" ry="4" fill="#56392E"/><path d="M55 70q8-7 15-1" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M21 32q12-10 21 0M75 32q12-10 21 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="m91 62 4-5 4 5 6 2-5 4 1 6-6-3-5 3 1-6-5-4Z" fill="#F27B57"/>`,
+    ),
+  },
+  {
+    id: 'sleepy-reader',
+    label: 'อ่านโต้รุ่งจนเช้า',
+    svg: makeAksaraSticker(
+      `<path d="M43 54q5-5 10 0m12 0q5-5 10 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/><path d="M55 68q5-3 10 0" fill="none" stroke="#B65353" stroke-width="3" stroke-linecap="round"/><path d="M78 63q10 5 4 12" fill="none" stroke="#69C9ED" stroke-width="3" stroke-linecap="round"/><path d="M35 41q7-5 14 0" fill="none" stroke="#56392E" stroke-width="3" stroke-linecap="round"/>`,
+      `<path d="M83 18h20v5L90 35h13v6H81v-5l13-12H83Zm-65 4h15v4l-10 8h10v5H17v-4l10-8h-9Z" fill="#7F9ED4"/><path d="M22 80q7-8 15 0" fill="none" stroke="#69C9ED" stroke-width="4" stroke-linecap="round"/>`,
+    ),
   },
 ];
 

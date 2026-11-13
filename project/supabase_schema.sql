@@ -100,6 +100,8 @@ create table if not exists public.comments (
   donation jsonb,
   created_at bigint not null
 );
+alter table public.comments add column if not exists is_sticker boolean not null default false;
+alter table public.comments add column if not exists sticker jsonb;
 
 create table if not exists public.tips (
   id text primary key,

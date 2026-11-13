@@ -34,17 +34,14 @@ export function Home({
   const [carouselIdx, setCarouselIdx] = useState(0);
   const [sortBy, setSortBy] = useState<StorySort>('recent');
 
-  const publishedStories = useMemo(
-    () => state.stories.filter((s) => s.status !== 'draft' && s.status !== 'private'),
-    [state.stories],
-  );
+  const availableStories = useMemo(() => state.stories, [state.stories]);
 
   const filteredStories = useMemo(() => {
     const rawQuery = searchQuery.trim().toLocaleLowerCase('th-TH');
     const isTagSearch = rawQuery.startsWith('#');
     const query = rawQuery.replace(/^#/, '');
     const tagQuery = activeTag?.replace(/^#/, '').toLocaleLowerCase('th-TH');
-    const matches = publishedStories.filter((story) => {
+    const matches = availableStories.filter((story) => {
       const tags = story.tags.map((tag) => tag.replace(/^#/, '').toLocaleLowerCase('th-TH'));
       const matchesSearch = !query || (isTagSearch
         ? tags.some((tag) => tag.includes(query))
@@ -61,10 +58,10 @@ export function Home({
       if (sortBy === 'likes') return b.likeCount - a.likeCount;
       return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
     });
-  }, [activeCategory, activeTag, publishedStories, searchQuery, sortBy]);
+  }, [activeCategory, activeTag, availableStories, searchQuery, sortBy]);
 
   // Auto-sliding carousel
-  const featured = useMemo(() => publishedStories.slice(0, 3), [publishedStories]);
+  const featured = useMemo(() => availableStories.slice(0, 3), [availableStories]);
 
   useEffect(() => {
     if (featured.length <= 1) return;
@@ -74,14 +71,14 @@ export function Home({
     return () => clearInterval(timer);
   }, [featured.length]);
 
-  const sortStories = (stories: typeof publishedStories) =>
+  const sortStories = (stories: typeof availableStories) =>
     [...stories].sort((a, b) => {
       if (sortBy === 'views') return b.readCount - a.readCount;
       if (sortBy === 'likes') return b.likeCount - a.likeCount;
       return (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt);
     });
-  const freeNovels = sortStories(publishedStories.filter((s) => s.isFree));
-  const trending = [...publishedStories].sort((a, b) => b.readCount - a.readCount);
+  const freeNovels = sortStories(availableStories.filter((s) => s.isFree));
+  const trending = [...availableStories].sort((a, b) => b.readCount - a.readCount);
   const continueReading = state.progress
     .map((p) => ({ progress: p, story: getStory(p.storyId) }))
     .filter((x) => x.story && x.story.status === 'published')
@@ -90,8 +87,8 @@ export function Home({
 
   const categoryStories = sortStories(
     activeCategory === 'ทั้งหมด'
-      ? publishedStories
-      : publishedStories.filter((s) => s.category === activeCategory),
+      ? availableStories
+      : availableStories.filter((s) => s.category === activeCategory),
   );
 
   const isFiltering = Boolean(searchQuery.trim() || activeTag || activeCategory !== 'ทั้งหมด');

@@ -59,13 +59,28 @@ export function Header({
         </div>
 
         <button
+          type="button"
           onClick={onProfileClick || (() => navigate({ name: 'profile' }))}
-          className="shrink-0 w-10 h-10 rounded-full bg-terracotta-100 flex items-center justify-center hover:ring-2 hover:ring-terracotta-300 transition"
+          aria-label={`โปรไฟล์ ${state.profile.displayName || 'คุณ'}`}
+          title={state.profile.displayName || 'คุณ'}
+          className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-terracotta-100 transition hover:ring-2 hover:ring-terracotta-300"
         >
-          {state.isVIP ? (
-            <span className="text-xs font-bold text-terracotta-600">VIP</span>
-          ) : (
-            <User size={20} className="text-terracotta-600" />
+          <User size={20} className="text-terracotta-600" aria-hidden="true" />
+          {state.profile.avatarUrl && (
+            <img
+              key={state.profile.avatarUrl}
+              src={state.profile.avatarUrl}
+              alt=""
+              onError={(event) => {
+                event.currentTarget.style.display = 'none';
+              }}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+          {state.isVIP && (
+            <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-amber-400 px-1 text-[7px] font-extrabold leading-3 text-amber-950">
+              VIP
+            </span>
           )}
         </button>
       </div>

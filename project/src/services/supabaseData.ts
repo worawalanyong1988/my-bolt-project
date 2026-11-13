@@ -149,7 +149,7 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   if (!supabaseClient) throw new Error('Supabase ยังไม่ได้ตั้งค่า');
   const client = supabaseClient;
   const [storyRows, chapterRows, commentRows, tipRows] = await Promise.all([
-    loadAllRows<StoryRow>((start, end) => client.from('stories').select('*').order('updated_at', { ascending: false }).range(start, end)),
+    loadAllRows<StoryRow>((start, end) => client.from('stories').select('*').range(start, end)),
     loadAllRows<ChapterRow>((start, end) => client.from('chapters').select('*').order('number', { ascending: true }).range(start, end)),
     loadAllRows<CommentRow>((start, end) => client.from('comments').select('*').order('created_at', { ascending: false }).range(start, end)),
     loadAllRows<TipRow>((start, end) => client.from('tips').select('*').order('created_at', { ascending: false }).range(start, end)),

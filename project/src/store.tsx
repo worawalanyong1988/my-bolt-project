@@ -4,12 +4,13 @@ import type { AppState, Chapter, Comment, PaymentMethod, Story, UserProfile } fr
 import { AppContext, type AppContextType } from './storeContext';
 import { getEmptyAppState, loadRemoteState, saveChapterRemote, saveProfileRemote, saveStoryRemote } from './services/supabaseData';
 import { supabaseClient, supabaseConfigError } from './services/supabaseClient';
+import { createUuid } from './utils/uuid';
 
 const VIEW_SESSION_PREFIX = 'aksara-view-session-v1:';
 const viewsClaimedInMemory = new Set<string>();
 
 function uid(): string {
-  return crypto.randomUUID();
+  return createUuid();
 }
 
 function claimSessionView(key: string): boolean {
@@ -46,12 +47,12 @@ function getViewSessionId(): string {
   try {
     const stored = sessionStorage.getItem(key);
     if (stored) return stored;
-    const generated = crypto.randomUUID();
+    const generated = createUuid();
     sessionStorage.setItem(key, generated);
     return generated;
   } catch (error) {
     console.warn('Unable to persist the view session identifier.', error);
-    return crypto.randomUUID();
+    return createUuid();
   }
 }
 

@@ -19,7 +19,7 @@ export type AgeRating = 'ทุกวัย' | '18+';
 
 export type ChapterAccess = 'free' | 'vip';
 
-export type StoryStatus = 'published' | 'draft';
+export type StoryStatus = 'published' | 'draft' | 'private';
 
 export type ReadingTheme = 'paper' | 'sepia' | 'night';
 
@@ -44,7 +44,7 @@ export interface Story {
   penName: string;
   synopsis: string;
   intro: string; // rich story introduction / character profiles / hooks
-  category: Category;
+  category: Category | '';
   ageRating: AgeRating;
   tags: string[];
   coverColor: string; // gradient seed color

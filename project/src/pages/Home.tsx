@@ -35,7 +35,7 @@ export function Home({
   const [sortBy, setSortBy] = useState<StorySort>('recent');
 
   const publishedStories = useMemo(
-    () => state.stories.filter((s) => s.status === 'published'),
+    () => state.stories.filter((s) => s.status !== 'draft' && s.status !== 'private'),
     [state.stories],
   );
 

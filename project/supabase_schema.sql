@@ -64,6 +64,10 @@ create table if not exists public.stories (
   updated_at bigint not null
 );
 alter table public.stories add column if not exists horizontal_cover_url text;
+alter table public.stories alter column status drop not null;
+alter table public.stories drop constraint if exists stories_status_check;
+alter table public.stories add constraint stories_status_check
+  check (status is null or status in ('published', 'draft', 'private', ''));
 
 create table if not exists public.chapters (
   id text primary key,
@@ -76,6 +80,10 @@ create table if not exists public.chapters (
   created_at bigint not null,
   unique (story_id, number)
 );
+alter table public.chapters alter column status drop not null;
+alter table public.chapters drop constraint if exists chapters_status_check;
+alter table public.chapters add constraint chapters_status_check
+  check (status is null or status in ('published', 'draft', 'private', ''));
 
 create table if not exists public.chapter_contents (
   chapter_id text primary key references public.chapters(id) on delete cascade,
@@ -237,7 +245,7 @@ begin
   insert into public.view_events(story_id, session_id)
   select s.id, p_session_id
   from public.stories s
-  where s.id = p_story_id and s.status = 'published'
+  where s.id = p_story_id and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
   on conflict (story_id, session_id) where chapter_id is null do nothing;
 
   if found then
@@ -259,7 +267,8 @@ begin
   from public.chapters c
   join public.stories s on s.id = c.story_id
   where c.id = p_chapter_id and c.story_id = p_story_id
-    and c.status = 'published' and s.status = 'published';
+    and coalesce(nullif(btrim(c.status), ''), 'published') = 'published'
+    and coalesce(nullif(btrim(s.status), ''), 'published') = 'published';
 
   if chapter_access is null or (chapter_access = 'vip' and not exists (
     select 1 from public.profiles p where p.id = (select auth.uid()) and p.is_vip
@@ -345,7 +354,8 @@ begin
     select 1 from public.chapters c
     join public.stories s on s.id = c.story_id
     where c.id = p_chapter_id and c.story_id = p_story_id
-      and c.status = 'published' and s.status = 'published'
+      and coalesce(nullif(btrim(c.status), ''), 'published') = 'published'
+      and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
   ) then raise exception 'Chapter is not available'; end if;
 
   insert into public.comments(id, story_id, chapter_id, author_id, author, avatar_color, avatar_url, is_vip, text, is_sticker, sticker, created_at)
@@ -384,7 +394,8 @@ begin
     select 1 from public.chapters c
     join public.stories s on s.id = c.story_id
     where c.id = p_chapter_id and c.story_id = p_story_id
-      and c.status = 'published' and s.status = 'published'
+      and coalesce(nullif(btrim(c.status), ''), 'published') = 'published'
+      and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
   ) then raise exception 'Chapter is not available'; end if;
 
   insert into public.tips(id, story_id, chapter_id, donor_id, donor, amount, label, sticker_id, sticker_emoji, payment_method, created_at)
@@ -685,7 +696,11 @@ drop policy if exists "Users update safe profile fields" on public.profiles;
 create policy "Users update safe profile fields" on public.profiles for update to authenticated using (id = (select auth.uid())) with check (id = (select auth.uid()));
 
 drop policy if exists "Published stories are public" on public.stories;
-create policy "Published stories are public" on public.stories for select to anon, authenticated using (status = 'published' or author_id = (select auth.uid()) or public.is_writer());
+create policy "Published stories are public" on public.stories for select to anon, authenticated using (
+  coalesce(nullif(btrim(status), ''), 'published') = 'published'
+  or author_id = (select auth.uid())
+  or public.is_writer()
+);
 drop policy if exists "Only writer can insert stories" on public.stories;
 create policy "Only writer can insert stories" on public.stories for insert to authenticated with check (public.is_writer() and author_id = (select auth.uid()));
 drop policy if exists "Only writer can update stories" on public.stories;
@@ -695,7 +710,12 @@ create policy "Only writer can delete stories" on public.stories for delete to a
 
 drop policy if exists "Published chapters are public" on public.chapters;
 create policy "Published chapters are public" on public.chapters for select to anon, authenticated using (
-  status = 'published' and exists (select 1 from public.stories s where s.id = story_id and s.status = 'published')
+  coalesce(nullif(btrim(status), ''), 'published') = 'published'
+  and exists (
+    select 1 from public.stories s
+    where s.id = story_id
+      and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
+  )
   or public.is_writer()
 );
 drop policy if exists "Only writer can write chapters" on public.chapters;
@@ -712,7 +732,8 @@ create policy "Accessible chapter text is visible" on public.chapter_contents fo
       and (
         public.is_writer()
         or (
-          c.status = 'published' and s.status = 'published'
+          coalesce(nullif(btrim(c.status), ''), 'published') = 'published'
+          and coalesce(nullif(btrim(s.status), ''), 'published') = 'published'
           and (
             c.access = 'free'
             or exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.is_vip)

@@ -38,7 +38,7 @@ export function NovelCard({ story, onTagClick }: NovelCardProps) {
           <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-charcoal">{story.title}</h3>
           <p className="mt-0.5 text-xs text-charcoal-muted">{story.penName}</p>
           <div className="mt-1 flex items-center justify-between">
-            <span className="truncate text-[10px] text-charcoal-muted">{story.category}</span>
+            <span className="truncate text-[10px] text-charcoal-muted">{story.category || 'ไม่ระบุหมวดหมู่'}</span>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-1">
             <span className="text-[10px] text-charcoal-muted">{publishedChapters.length} ตอน</span>

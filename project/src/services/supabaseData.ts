@@ -6,17 +6,17 @@ import { supabaseClient } from './supabaseClient';
 type StoryRow = {
   id: string;
   author_id: string;
-  title: string;
-  status: Story['status'];
-  tags: string[];
-  category: Story['category'];
+  title: string | null;
+  status: string | null;
+  tags: string[] | null;
+  category: Story['category'] | null;
   horizontal_cover_url: string | null;
-  read_count: number;
-  like_count: number;
-  bookmark_count: number;
-  data: Omit<Story, 'chapters' | 'readCount' | 'likeCount' | 'bookmarkCount'>;
-  created_at: number;
-  updated_at: number;
+  read_count: number | null;
+  like_count: number | null;
+  bookmark_count: number | null;
+  data: Partial<Story> | null;
+  created_at: number | null;
+  updated_at: number | null;
 };
 
 type ChapterRow = {
@@ -99,6 +99,15 @@ type TransactionRow = {
 
 function throwOnError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
+}
+
+function normalizeStoryStatus(status: string | null | undefined): Story['status'] {
+  if (status === 'draft' || status === 'private') return status;
+  return 'published';
+}
+
+function normalizeAgeRating(ageRating: Story['ageRating'] | undefined): Story['ageRating'] {
+  return ageRating === '18+' ? '18+' : 'ทุกวัย';
 }
 
 async function loadAllRows<T>(
@@ -284,11 +293,11 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   const chaptersByStory = new Map<string, Chapter[]>();
   for (const row of chapterRows) {
     const chapter: Chapter = {
-      ...row.data,
+      ...(row.data ?? {}),
       id: row.id,
       number: row.number,
       title: row.data?.title ?? '',
-      status: row.status === 'draft' || row.data?.status === 'draft' ? 'draft' : 'published',
+      status: normalizeStoryStatus(row.status ?? row.data?.status),
       access: row.access === 'vip' || row.data?.access === 'vip' ? 'vip' : 'free',
       authorNote: undefined,
       readCount: row.read_count ?? 0,
@@ -298,18 +307,25 @@ export async function loadRemoteState(user: User | null): Promise<{ state: AppSt
   }
 
   const stories = storyRows.map((row) => ({
-    ...row.data,
+    ...(row.data ?? {}),
     id: row.id,
-    title: row.title,
-    status: row.status,
-    tags: row.tags ?? [],
-    category: row.category,
-    horizontalCoverUrl: row.horizontal_cover_url ?? row.data.horizontalCoverUrl,
-    readCount: row.read_count,
-    likeCount: row.like_count,
-    bookmarkCount: row.bookmark_count,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    title: row.title ?? row.data?.title ?? '',
+    penName: row.data?.penName ?? 'Aksara',
+    status: normalizeStoryStatus(row.status ?? row.data?.status),
+    tags: Array.isArray(row.tags) ? row.tags : Array.isArray(row.data?.tags) ? row.data.tags : [],
+    category: row.category ?? row.data?.category ?? '',
+    ageRating: normalizeAgeRating(row.data?.ageRating),
+    coverColor: row.data?.coverColor ?? '#E07A5F',
+    coverPattern: row.data?.coverPattern ?? 'stars',
+    isFree: row.data?.isFree ?? false,
+    horizontalCoverUrl: row.horizontal_cover_url || row.data?.horizontalCoverUrl || undefined,
+    readCount: row.read_count ?? row.data?.readCount ?? 0,
+    likeCount: row.like_count ?? row.data?.likeCount ?? 0,
+    bookmarkCount: row.bookmark_count ?? row.data?.bookmarkCount ?? 0,
+    synopsis: row.data?.synopsis ?? '',
+    intro: row.data?.intro ?? '',
+    createdAt: row.created_at ?? row.data?.createdAt ?? 0,
+    updatedAt: row.updated_at ?? row.data?.updatedAt,
     chapters: chaptersByStory.get(row.id) ?? [],
   }));
   const comments: Comment[] = commentRows.map((row) => ({
